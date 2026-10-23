@@ -1,0 +1,88 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev
+      - run: npm ci
+      - run: npm run check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test -p cornamusa-core
+      - name: Prueba de integración con GreenMail (IMAP/SMTP con TLS)
+        run: |
+          set -e
+          mkdir -p /tmp/gm && cd /tmp/gm
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 2 -subj "/CN=CI CA" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+          openssl req -newkey rsa:2048 -nodes -keyout srv.key -out srv.csr -subj "/CN=localhost"
+          printf "subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n" > ext.cnf
+          openssl x509 -req -in srv.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out srv.pem -days 2 -extfile ext.cnf
+          openssl pkcs12 -export -in srv.pem -inkey srv.key -certfile ca.pem -name greenmail -out srv.p12 -passout pass:changeit
+          curl -sSLo greenmail.jar https://repo1.maven.org/maven2/com/icegreen/greenmail-standalone/2.1.14/greenmail-standalone-2.1.14.jar
+          java -Dgreenmail.setup.test.all -Dgreenmail.users=yo:secreto@localhost,ana:secreto@localhost \
+            -Dgreenmail.users.login=email -Dgreenmail.tls.keystore.file=/tmp/gm/srv.p12 \
+            -Dgreenmail.tls.keystore.password=changeit -Dgreenmail.hostname=127.0.0.1 -jar greenmail.jar &
+          sleep 8
+          cd "$GITHUB_WORKSPACE"
+          CORNAMUSA_IT=1 CORNAMUSA_EXTRA_CA=/tmp/gm/ca.pem cargo test -p cornamusa-core --test greenmail
+
+  bundle:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+          - platform: windows-latest
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Dependencias del sistema (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          # Configúralos en Settings → Secrets del repositorio; se incrustan al compilar.
+          CORNAMUSA_GOOGLE_CLIENT_ID: ${{ secrets.CORNAMUSA_GOOGLE_CLIENT_ID }}
+          CORNAMUSA_GOOGLE_CLIENT_SECRET: ${{ secrets.CORNAMUSA_GOOGLE_CLIENT_SECRET }}
+          CORNAMUSA_MS_CLIENT_ID: ${{ secrets.CORNAMUSA_MS_CLIENT_ID }}
+        with:
+          args: ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cornamusa-${{ matrix.platform }}
+          path: |
+            target/release/bundle/**
+            target/universal-apple-darwin/release/bundle/**
