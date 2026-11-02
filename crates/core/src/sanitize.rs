@@ -2,7 +2,7 @@
 //! renders it inside a script-less sandboxed iframe with a restrictive CSP.
 
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 static REMOTE_SRC: LazyLock<Regex> =
@@ -89,6 +89,54 @@ pub fn sanitize_email_html(html: &str, allow_remote: bool) -> Sanitized {
     Sanitized { html: builder.clean(&pre).to_string(), remote_blocked: remote_present && !allow_remote }
 }
 
+/// Strict profile for chat bubbles, whose HTML is inserted directly into the app page (no
+/// iframe): only structural/inline formatting survives. No `style`, `class`, `id` or `name`,
+/// so a message can't inject CSS or clobber the app's DOM. Trailing empty blocks are dropped.
+pub fn sanitize_chat_html(html: &str, allow_remote: bool) -> String {
+    let tags: HashSet<&str> = [
+        "p", "div", "span", "br", "b", "strong", "i", "em", "u", "s", "strike", "sup", "sub",
+        "ul", "ol", "li", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "a", "img",
+        "blockquote", "pre", "code", "h1", "h2", "h3", "h4", "h5", "h6", "hr",
+    ]
+    .into_iter()
+    .collect();
+    let mut attrs: HashMap<&str, HashSet<&str>> = HashMap::new();
+    attrs.insert("a", ["href"].into_iter().collect());
+    attrs.insert("img", ["src", "alt", "width", "height"].into_iter().collect());
+    attrs.insert("td", ["colspan", "rowspan"].into_iter().collect());
+    attrs.insert("th", ["colspan", "rowspan"].into_iter().collect());
+
+    let mut builder = ammonia::Builder::default();
+    builder
+        .tags(tags)
+        .generic_attributes(HashSet::new())
+        .tag_attributes(attrs)
+        .add_clean_content_tags(&["title"])
+        .add_url_schemes(&["cid"])
+        .link_rel(Some("noopener noreferrer"))
+        .strip_comments(true)
+        .attribute_filter(move |element, attribute, value| match (element, attribute) {
+            ("img", "src") if !allow_remote && is_remote(value) => None,
+            _ => Some(value.into()),
+        });
+    // Blank paragraphs (Outlook's `<p>&nbsp;</p>` spacers) would double the bubble's margins.
+    static EMPTY_P: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<p>(\s|&nbsp;|\u{a0})*</p>").unwrap());
+    let cleaned = builder.clean(html).to_string();
+    let mut out = EMPTY_P.replace_all(&cleaned, "").into_owned();
+
+    static TRAILING_EMPTY: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)(\s|&nbsp;|\u{a0}|<br\s*/?>|<(p|div|span)>(\s|&nbsp;|\u{a0}|<br\s*/?>)*</(p|div|span)>)+$").unwrap()
+    });
+    loop {
+        let trimmed = TRAILING_EMPTY.replace(&out, "").into_owned();
+        if trimmed == out {
+            break;
+        }
+        out = trimmed;
+    }
+    out
+}
+
 /// Sanitize user-authored HTML (signatures). Remote images are allowed since the user wrote it.
 pub fn sanitize_signature_html(html: &str) -> String {
     sanitize_email_html(html, true).html
@@ -97,6 +145,20 @@ pub fn sanitize_signature_html(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_profile_is_strict() {
+        let h = r#"<style>body{display:none}</style><div id="app" class="x" style="color:red"><b>Hola</b> <a href="https://x.cl" name="y" onclick="z()">link</a><img src="https://t/p.gif"><img src="cid:logo"><form><input></form><script>x()</script></div><ul><li>a</li></ul><table><tr><td colspan="2">c</td></tr></table><p>&nbsp;</p><div><br></div>"#;
+        let s = sanitize_chat_html(h, false);
+        for bad in ["style", "class", "id=", "name=", "onclick", "script", "form", "input", "https://t/", "display"] {
+            assert!(!s.contains(bad), "{bad} in {s}");
+        }
+        assert!(s.contains("<b>Hola</b>") && s.contains("<li>a</li>") && s.contains(r#"colspan="2""#));
+        assert!(s.contains("cid:logo") && s.contains(r#"href="https://x.cl""#));
+        assert!(s.ends_with("</table>"), "{s}");
+        assert_eq!(sanitize_chat_html("<p>a</p><p>&nbsp;</p><p>b</p>", false), "<p>a</p><p>b</p>");
+        assert!(sanitize_chat_html(r#"<img src="https://t/p.gif">"#, true).contains("https://t/p.gif"));
+    }
 
     #[test]
     fn strips_scripts_and_handlers() {

@@ -2,8 +2,8 @@
 
 use crate::error::{Error, Result};
 use crate::model::{Account, AttachmentInfo, EmailAddress, OutgoingMessage};
-use crate::quote_strip::{html_to_text, preview, strip_html_quotes, strip_quotes};
-use crate::sanitize::sanitize_email_html;
+use crate::quote_strip::{cut_html_quotes, html_to_text, preview, strip_quotes};
+use crate::sanitize::{sanitize_chat_html, sanitize_email_html};
 use crate::threading::{normalize_id, parse_id_list};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -33,6 +33,8 @@ pub struct ParsedBody {
     pub remote_blocked: bool,
     pub attachments: Vec<AttachmentInfo>,
     pub chat_text: String,
+    /// Sanitized (strict profile) HTML of the new part, when the message has HTML.
+    pub chat_html: Option<String>,
     pub preview: String,
 }
 
@@ -137,11 +139,21 @@ pub fn parse_full(raw: &[u8], allow_remote: bool) -> Result<ParsedBody> {
         None => (None, false),
     };
 
-    let chat_text = match (&text, &raw_html) {
+    let cut_html = raw_html.as_deref().map(cut_html_quotes);
+    let chat_text = match (&text, &cut_html) {
         (Some(t), _) if !t.trim().is_empty() => strip_quotes(t),
-        (_, Some(h)) => strip_quotes(&html_to_text(&strip_html_quotes(h))),
+        (_, Some(h)) => strip_quotes(&html_to_text(h)),
         _ => String::new(),
     };
+    // Formatted version of the new part, for chat bubbles. Dropped when it's empty or clearly
+    // longer than the text version (the HTML cut missed a quote the text cut found).
+    let chat_html = cut_html.filter(|_| has_html_part).and_then(|h| {
+        let h = inline_cid_images(&sanitize_chat_html(&h, allow_remote), &msg);
+        let len = html_to_text(&h).chars().count();
+        let text_len = chat_text.chars().count();
+        let empty = len == 0 && !h.contains("<img");
+        (!empty && len <= text_len + text_len / 2 + 200).then_some(h)
+    });
     let preview_src = if chat_text.is_empty() { text.clone().unwrap_or_default() } else { chat_text.clone() };
 
     let attachments = msg
@@ -170,6 +182,7 @@ pub fn parse_full(raw: &[u8], allow_remote: bool) -> Result<ParsedBody> {
         attachments,
         preview: preview(&preview_src, 180),
         chat_text,
+        chat_html,
     })
 }
 
@@ -447,6 +460,24 @@ JVBERi0xLjQK\r\n\
         assert_eq!(parsed.headers.subject, "Re: Reunión");
         assert_eq!(parsed.attachments.len(), 1);
         assert_eq!(parsed.chat_text, "Listo");
+    }
+
+    #[test]
+    fn foxmail_style_reply_chat_html() {
+        let raw = "From: Ana <ana@example.com>\r\nTo: juan@example.com\r\nSubject: RE: pedido\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n\
+Hi Juan\r\n\r\nWe confirm\r\n1. Yes\r\n2. China\r\n\r\n------------------ Original ------------------\r\n\
+From:  Juan <juan@example.com>\r\nSend time:  Saturday\r\n\r\nHi Ana,\r\n--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+<div>Hi Juan</div><div>We confirm</div><ol><li>Yes</li><li>China</li></ol><div><br></div>\
+<div style=\"font-size:12px\">------------------&nbsp;Original&nbsp;------------------</div>\
+<div style=\"background:#efefef\"><div><b>From:</b>&nbsp;Juan</div><div><b>Send time:</b>&nbsp;Saturday</div></div>\
+<div>Hi Ana,</div>\r\n--b--\r\n";
+        let p = parse_full(raw.as_bytes(), false).unwrap();
+        assert_eq!(p.chat_text, "Hi Juan\n\nWe confirm\n1. Yes\n2. China");
+        let h = p.chat_html.unwrap();
+        assert!(h.contains("<li>China</li>"), "{h}");
+        assert!(!h.contains("Original") && !h.contains("Ana") && !h.contains("style"), "{h}");
+        assert!(h.ends_with("</ol>"), "{h}");
     }
 
     #[test]

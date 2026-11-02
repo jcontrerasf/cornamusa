@@ -69,6 +69,17 @@ class AppState {
     await this.saveSettings();
   }
 
+  /** Follows a link clicked inside an email: mailto opens the composer, web links go to the
+   *  system browser, anything else is ignored. */
+  openLink(href: string) {
+    if (href.toLowerCase().startsWith('mailto:')) {
+      const addr = decodeURIComponent(href.slice(7).split('?')[0]);
+      this.compose({ mode: 'new', to: [{ name: null, email: addr }] });
+    } else if (/^https?:/i.test(href)) {
+      api.openExternal(href).catch((err) => this.error(err));
+    }
+  }
+
   get chatView(): boolean {
     return this.settings?.chatView ?? false;
   }

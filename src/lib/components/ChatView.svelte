@@ -47,6 +47,12 @@
   function bubbleText(m: MessageBody) {
     return m.chatText || m.text || '';
   }
+  function onRichClick(e: MouseEvent) {
+    const a = (e.target as Element | null)?.closest?.('a');
+    if (!a) return;
+    e.preventDefault();
+    app.openLink(a.getAttribute('href') ?? '');
+  }
   function hasMore(m: MessageBody) {
     const full = (m.text ?? '').trim();
     return !!m.html || full.length > bubbleText(m).trim().length + 20;
@@ -123,7 +129,13 @@
             {#if showOriginal[s.id]}
               <div class="original"><MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode[s.id] ?? 'auto'} bind:dark={rendersDark[s.id]} /></div>
             {:else}
-              <div class="text">{@html linkify(escapeHtml(bubbleText(m)))}</div>
+              {#if m.chatHtml}
+                <!-- chatHtml comes from the backend's strict sanitizer (no style/class/id/scripts). -->
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                <div class="text rich" onclick={onRichClick}>{@html m.chatHtml}</div>
+              {:else}
+                <div class="text">{@html linkify(escapeHtml(bubbleText(m)))}</div>
+              {/if}
             {/if}
             <AttachmentChips message={m} compact />
             <div class="foot">
@@ -192,6 +204,21 @@
   .mine.grouped .bubble { border-top-right-radius: 6px; }
   .text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
   .text :global(a) { color: inherit; text-decoration: underline; }
+  /* Formatted bubble: structure from the email, colors from the app theme. */
+  .rich { white-space: normal; overflow-x: auto; }
+  .rich :global(p), .rich :global(h1), .rich :global(h2), .rich :global(h3), .rich :global(h4) { margin: 0 0 0.6em; }
+  .rich :global(h1), .rich :global(h2), .rich :global(h3), .rich :global(h4) { font-size: 1.05em; }
+  .rich :global(p:empty) { display: none; }
+  .rich :global(ul), .rich :global(ol) { margin: 0.3em 0 0.6em; padding-left: 1.5em; }
+  .rich :global(li) { margin: 0.15em 0; }
+  .rich :global(blockquote) { margin: 0.4em 0; padding-left: 0.8em; border-left: 2px solid color-mix(in srgb, currentColor 35%, transparent); opacity: 0.85; }
+  .rich :global(pre) { white-space: pre-wrap; font-size: 0.92em; }
+  .rich :global(table) { border-collapse: collapse; margin: 0.4em 0 0.7em; font-size: 0.95em; }
+  .rich :global(td), .rich :global(th) { border: 1px solid color-mix(in srgb, currentColor 22%, transparent); padding: 4px 8px; vertical-align: top; text-align: left; }
+  .rich :global(th) { font-weight: 600; }
+  .rich :global(img) { max-width: 100%; height: auto; }
+  .rich :global(hr) { border: none; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); }
+  .rich > :global(:last-child) { margin-bottom: 0; }
   .original { background: var(--surface); color: var(--text); border-radius: 10px; padding: 8px; margin: 2px -6px 0; min-width: min(560px, 60vw); }
   .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 3px; }
   .time { font-size: 11px; opacity: 0.6; }

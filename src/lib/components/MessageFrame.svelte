@@ -3,7 +3,6 @@
   // that blocks every network load except images when the user allowed them, and links
   // intercepted so they open in the system browser (or the composer for mailto:).
   import { onDestroy } from 'svelte';
-  import { api } from '../api';
   import { app } from '../state.svelte';
   import { darkTextColor, escapeHtml, isWhiteBackground, looksDarkSafe } from '../util';
   import { linkify } from '../compose';
@@ -105,13 +104,7 @@
       const a = (e.target as Element | null)?.closest?.('a');
       if (!a) return;
       e.preventDefault();
-      const href = a.getAttribute('href') ?? '';
-      if (href.toLowerCase().startsWith('mailto:')) {
-        const addr = decodeURIComponent(href.slice(7).split('?')[0]);
-        app.compose({ mode: 'new', to: [{ name: null, email: addr }] });
-      } else if (/^https?:/i.test(href)) {
-        api.openExternal(href).catch((err) => app.error(err));
-      }
+      app.openLink(a.getAttribute('href') ?? '');
     });
     // Show the real destination of a link (anti-phishing).
     doc.addEventListener('mouseover', (e) => {

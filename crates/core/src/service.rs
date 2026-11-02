@@ -574,6 +574,7 @@ impl MailService {
             remote_content_blocked: p.remote_blocked,
             attachments: p.attachments,
             chat_text: p.chat_text,
+            chat_html: p.chat_html,
             summary,
         })
     }

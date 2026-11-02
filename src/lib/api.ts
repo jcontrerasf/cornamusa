@@ -63,6 +63,8 @@ export interface MessageBody {
   remoteContentBlocked: boolean;
   attachments: AttachmentInfo[];
   chatText: string;
+  /** Strictly sanitized HTML of the new part (no style/class/id); null when the mail has no HTML. */
+  chatHtml: string | null;
 }
 
 export interface Thread {

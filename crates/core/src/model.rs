@@ -197,6 +197,9 @@ pub struct MessageBody {
     pub attachments: Vec<AttachmentInfo>,
     /// Reply-only part of the message, without quoted history (for chat view).
     pub chat_text: String,
+    /// Same, as strictly sanitized HTML that keeps formatting (lists, tables, bold, links).
+    /// Safe to insert into the page directly: no styles, classes or ids.
+    pub chat_html: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
