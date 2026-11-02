@@ -272,6 +272,10 @@ pub struct Settings {
     pub theme: String,
     pub load_remote_images: bool,
     pub start_minimized: bool,
+    /// Sidebar reduced to icons only. `serde(default)` keeps settings saved by older
+    /// versions loadable (a parse failure would silently reset every setting).
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for Settings {
@@ -284,6 +288,7 @@ impl Default for Settings {
             theme: "system".into(),
             load_remote_images: false,
             start_minimized: false,
+            sidebar_collapsed: false,
         }
     }
 }

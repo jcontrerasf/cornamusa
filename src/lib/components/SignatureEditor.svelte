@@ -110,7 +110,7 @@
           <textarea class="input code selectable" bind:value={current.body} rows="10" spellcheck="false"
             placeholder={'<table><tr><td><img src="https://…/logo.png" width="64"></td><td><b>Juan Pérez</b><br>ACME</td></tr></table>'}></textarea>
           <div class="preview-label faint">Vista previa</div>
-          <div class="box preview"><MessageFrame html={current.body} allowRemote /></div>
+          <div class="box preview"><MessageFrame html={current.body} allowRemote mode="light" /></div>
         {/if}
       {/key}
       <p class="faint small">El HTML se sanitiza al guardar: se eliminan scripts, formularios y atributos peligrosos.</p>

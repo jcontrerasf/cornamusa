@@ -111,6 +111,7 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   loadRemoteImages: boolean;
   startMinimized: boolean;
+  sidebarCollapsed: boolean;
 }
 
 export interface SettingsView extends Settings { autostart: boolean }

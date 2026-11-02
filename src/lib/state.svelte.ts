@@ -50,6 +50,25 @@ class AppState {
     this.toast(errorText(e), 'error');
   }
 
+  /** OS preference, tracked live; only used when the theme setting is 'system'. */
+  systemDark = $state(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+
+  /** Whether the UI is currently rendered with the dark palette. */
+  get isDark(): boolean {
+    const theme = this.settings?.theme ?? 'system';
+    return theme === 'system' ? this.systemDark : theme === 'dark';
+  }
+
+  get sidebarCollapsed(): boolean {
+    return this.settings?.sidebarCollapsed ?? false;
+  }
+
+  async toggleSidebar() {
+    if (!this.settings) return;
+    this.settings.sidebarCollapsed = !this.settings.sidebarCollapsed;
+    await this.saveSettings();
+  }
+
   get chatView(): boolean {
     return this.settings?.chatView ?? false;
   }
@@ -263,3 +282,7 @@ export const UNIFIED_LABELS: Partial<Record<FolderRole, string>> = {
 };
 
 export const app = new AppState();
+
+if (typeof matchMedia === 'function') {
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => (app.systemDark = e.matches));
+}

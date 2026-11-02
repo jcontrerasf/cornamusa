@@ -942,6 +942,15 @@ mod tests {
         s.save_settings(&st).await.unwrap();
         assert!(s.settings().await.unwrap().chat_view);
 
+        // Settings saved by an older version (no `sidebarCollapsed`) must still load as saved.
+        sqlx::query("UPDATE settings SET value = ? WHERE key = 'app'")
+            .bind(r#"{"closeToTray":false,"notifications":true,"doNotDisturb":false,"chatView":true,"theme":"dark","loadRemoteImages":false,"startMinimized":false}"#)
+            .execute(&s.pool)
+            .await
+            .unwrap();
+        let old = s.settings().await.unwrap();
+        assert!(!old.close_to_tray && old.chat_view && old.theme == "dark" && !old.sidebar_collapsed);
+
         s.delete_account("acc").await.unwrap();
         assert!(s.accounts().await.unwrap().is_empty());
         assert!(s.signatures().await.unwrap().is_empty());

@@ -3,7 +3,7 @@
   import type { Folder, FolderRole } from '../api';
   import {
     Inbox, Send, FileText, Archive, ShieldAlert, Trash2, Folder as FolderIcon, Star, Layers,
-    PenSquare, Settings, Plus, ChevronDown, ChevronRight, RefreshCw, AlertCircle,
+    PenSquare, Settings, Plus, ChevronDown, ChevronRight, RefreshCw, AlertCircle, PanelLeftClose, PanelLeftOpen,
   } from '@lucide/svelte';
 
   const ICONS: Record<FolderRole, typeof Inbox> = {
@@ -23,16 +23,25 @@
   function showUnread(role: FolderRole) {
     return role === 'inbox' || role === 'junk' || role === 'other';
   }
+  // Collapsed mode: names move to the tooltip.
+  function tip(name: string, unread: number) {
+    return mini && unread > 0 ? `${name} (${unread})` : name;
+  }
+
+  const mini = $derived(app.sidebarCollapsed);
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:mini>
   <div class="brand">
     <img src="/icon.svg" alt="" width="26" height="26" />
-    <span>Cornamusa</span>
+    {#if !mini}
+      <span>Cornamusa</span>
+      <button class="icon-btn toggle" title="Reducir a iconos (B)" onclick={() => app.toggleSidebar()}><PanelLeftClose size={17} /></button>
+    {/if}
   </div>
 
   <button class="btn primary compose" onclick={() => app.compose()} title="Redactar (C)">
-    <PenSquare size={16} /> Redactar
+    <PenSquare size={16} />{#if !mini} Redactar{/if}
   </button>
 
   <nav class="scroll">
@@ -40,17 +49,27 @@
       <div class="section-label">Todas las cuentas</div>
       {#each UNIFIED as role}
         {@const Icon = ICONS[role]}
-        <button class="item" class:active={isActiveUnified(role)} onclick={() => app.setView({ kind: 'unified', role })}>
+        {@const unread = showUnread(role) ? app.unifiedUnread(role) : 0}
+        <button
+          class="item"
+          class:active={isActiveUnified(role)}
+          title={mini ? tip(UNIFIED_LABELS[role] ?? role, unread) : undefined}
+          onclick={() => app.setView({ kind: 'unified', role })}
+        >
           <Icon size={17} />
           <span class="name">{UNIFIED_LABELS[role]}</span>
-          {#if showUnread(role) && app.unifiedUnread(role) > 0}<span class="count">{app.unifiedUnread(role)}</span>{/if}
+          {#if unread > 0}<span class="count">{unread}</span>{/if}
         </button>
       {/each}
     {/if}
 
     {#each app.accounts as account (account.id)}
       <div class="account">
-        <button class="account-head" onclick={() => (collapsed[account.id] = !collapsed[account.id])}>
+        <button
+          class="account-head"
+          title={mini ? account.displayName || account.email : undefined}
+          onclick={() => (collapsed[account.id] = !collapsed[account.id])}
+        >
           {#if collapsed[account.id]}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
           <span class="dot" style:background={account.color}></span>
           <span class="account-name" title={account.email}>{account.displayName || account.email}</span>
@@ -64,6 +83,7 @@
           {#each app.folders[account.id] ?? [] as f (f.id)}
             {@const Icon = ICONS[f.role]}
             <button
+              title={mini ? tip(f.name, showUnread(f.role) ? f.unread : 0) : undefined}
               class="item"
               class:active={isActiveFolder(f) || (app.accounts.length === 1 && f.role !== 'other' && isActiveUnified(f.role))}
               onclick={() => app.setView({ kind: 'folder', accountId: account.id, folderId: f.id })}
@@ -83,8 +103,15 @@
   </nav>
 
   <div class="footer">
-    <button class="btn ghost" onclick={() => (app.showWizard = true)}><Plus size={16} /> Agregar cuenta</button>
+    {#if mini}
+      <button class="icon-btn" title="Agregar cuenta" onclick={() => (app.showWizard = true)}><Plus size={18} /></button>
+    {:else}
+      <button class="btn ghost" onclick={() => (app.showWizard = true)}><Plus size={16} /> Agregar cuenta</button>
+    {/if}
     <button class="icon-btn" title="Configuración" onclick={() => (app.showSettings = 'general')}><Settings size={18} /></button>
+    {#if mini}
+      <button class="icon-btn" title="Expandir barra lateral (B)" onclick={() => app.toggleSidebar()}><PanelLeftOpen size={18} /></button>
+    {/if}
   </div>
 </aside>
 
@@ -92,7 +119,29 @@
   .sidebar {
     width: 248px; flex-shrink: 0; display: flex; flex-direction: column;
     background: var(--surface-2); border-right: 1px solid var(--border); min-height: 0;
+    transition: width 0.15s ease;
   }
+  .toggle { margin: -4px -8px -4px auto; color: var(--text-3); }
+
+  /* Icons-only mode */
+  .mini { width: 60px; }
+  .mini .brand { justify-content: center; padding: 16px 0 10px; }
+  .mini .compose { margin: 6px 10px 12px; padding: 10px 0; }
+  .mini .scroll { padding: 0 6px 8px; overflow-x: hidden; }
+  .mini .section-label { height: 1px; padding: 0; margin: 8px 6px; background: var(--border); font-size: 0; }
+  .mini .item { justify-content: center; padding: 8px 0; position: relative; }
+  .mini .name { display: none; }
+  .mini .count {
+    position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+    background: var(--accent); color: var(--accent-text); font-size: 10px; line-height: 16px; text-align: center;
+  }
+  .mini .count.soft { background: var(--surface-3); color: var(--text-2); }
+  .mini .account { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }
+  .mini .account-head { justify-content: center; gap: 4px; padding: 6px 0; }
+  .mini .account-head > :global(svg:first-child),
+  .mini .account-name { display: none; }
+  .mini .empty { display: none; }
+  .mini .footer { flex-direction: column; gap: 4px; padding: 8px 0; }
   .brand { display: flex; align-items: center; gap: 9px; padding: 16px 18px 10px; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
   .compose { margin: 6px 14px 12px; justify-content: center; padding: 10px; border-radius: 12px; font-size: 14px; box-shadow: var(--shadow); }
   .scroll { flex: 1; overflow-y: auto; padding: 0 8px 8px; }

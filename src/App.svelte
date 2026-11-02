@@ -98,6 +98,7 @@
       s: () => pane?.toggleFlag(),
       u: () => pane?.markUnread(),
       v: () => app.toggleChatView(),
+      b: () => app.toggleSidebar(),
       Escape: () => (app.selected = null),
     };
     const action = actions[e.key];

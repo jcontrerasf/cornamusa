@@ -100,7 +100,7 @@
     <div class="placeholder">
       <img src="/icon.svg" alt="" width="72" height="72" />
       <p>Selecciona una conversación</p>
-      <p class="faint hint"><kbd>C</kbd> redactar · <kbd>/</kbd> buscar · <kbd>J</kbd>/<kbd>K</kbd> navegar · <kbd>V</kbd> vista chat</p>
+      <p class="faint hint"><kbd>C</kbd> redactar · <kbd>/</kbd> buscar · <kbd>J</kbd>/<kbd>K</kbd> navegar · <kbd>V</kbd> vista chat · <kbd>B</kbd> barra lateral</p>
     </div>
   {:else}
     <header class="toolbar">

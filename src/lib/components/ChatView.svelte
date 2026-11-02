@@ -9,7 +9,7 @@
   import Avatar from './Avatar.svelte';
   import MessageFrame from './MessageFrame.svelte';
   import AttachmentChips from './AttachmentChips.svelte';
-  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp } from '@lucide/svelte';
+  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp, Sun, Moon } from '@lucide/svelte';
 
   let { messages, account, allowRemote, onSent }: {
     messages: MessageBody[]; account: Account; allowRemote: boolean; onSent: () => void;
@@ -19,6 +19,8 @@
   let draft = $state('');
   let sending = $state(false);
   let showOriginal = $state<Record<number, boolean>>({});
+  let themeMode = $state<Record<number, 'light' | 'dark'>>({});
+  let rendersDark = $state<Record<number, boolean>>({});
 
   const subject = $derived(messages[0]?.summary.subject || '(sin asunto)');
   const last = $derived(messages[messages.length - 1]);
@@ -119,7 +121,7 @@
           {/if}
           <div class="bubble" title={formatFullDate(s.date)}>
             {#if showOriginal[s.id]}
-              <div class="original"><MessageFrame html={m.html} text={m.text} {allowRemote} /></div>
+              <div class="original"><MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode[s.id] ?? 'auto'} bind:dark={rendersDark[s.id]} /></div>
             {:else}
               <div class="text">{@html linkify(escapeHtml(bubbleText(m)))}</div>
             {/if}
@@ -128,6 +130,15 @@
               {#if hasMore(m)}
                 <button class="more" onclick={() => (showOriginal[s.id] = !showOriginal[s.id])}>
                   {#if showOriginal[s.id]}<ChevronUp size={13} /> Vista chat{:else}<ChevronDown size={13} /> Ver correo completo{/if}
+                </button>
+              {/if}
+              {#if showOriginal[s.id] && app.isDark}
+                <button
+                  class="more"
+                  title={rendersDark[s.id] ? 'Ver con fondo claro' : 'Ver en modo oscuro'}
+                  onclick={() => (themeMode[s.id] = rendersDark[s.id] ? 'light' : 'dark')}
+                >
+                  {#if rendersDark[s.id]}<Sun size={13} />{:else}<Moon size={13} />{/if}
                 </button>
               {/if}
               <span class="time">{formatTime(s.date)}</span>
@@ -181,7 +192,7 @@
   .mine.grouped .bubble { border-top-right-radius: 6px; }
   .text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
   .text :global(a) { color: inherit; text-decoration: underline; }
-  .original { background: #fff; border-radius: 10px; padding: 8px; margin: 2px -6px 0; min-width: min(560px, 60vw); }
+  .original { background: var(--surface); color: var(--text); border-radius: 10px; padding: 8px; margin: 2px -6px 0; min-width: min(560px, 60vw); }
   .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 3px; }
   .time { font-size: 11px; opacity: 0.6; }
   .more { border: none; background: none; color: inherit; opacity: 0.75; font-size: 11.5px; display: flex; align-items: center; gap: 3px; padding: 0; margin-right: auto; }
