@@ -60,6 +60,17 @@ pub struct Account {
     pub smtp: ServerConfig,
     /// CSS color used to tell accounts apart in the unified UI.
     pub color: String,
+    /// Shared mailbox (Microsoft 365): the user who signs in and sends over SMTP, while
+    /// `username` (the mailbox address) is used for IMAP. `None` for regular accounts.
+    #[serde(default)]
+    pub auth_user: Option<String>,
+}
+
+impl Account {
+    /// User for SMTP authentication: the delegate for shared mailboxes.
+    pub fn smtp_user(&self) -> &str {
+        self.auth_user.as_deref().unwrap_or(&self.username)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

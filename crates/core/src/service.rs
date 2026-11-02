@@ -187,10 +187,78 @@ impl MailService {
             imap: preset.imap,
             smtp: preset.smtp,
             color: self.next_color().await,
+            auth_user: None,
         };
         // Verify IMAP access before persisting anything.
         let cred = Credential::OAuth { user: account.username.clone(), access_token: tokens.access_token.clone() };
         imap::connect(&account.imap, &cred).await?.logout().await.ok();
+
+        self.secrets.store(&account.id, SecretKind::RefreshToken, &refresh).await?;
+        self.tokens.lock().await.insert(account.id.clone(), (tokens.access_token, tokens.expires_at));
+        self.store.insert_account(&account).await?;
+        self.emit(Event::AccountsChanged);
+        self.start_worker(&account.id);
+        Ok(account)
+    }
+
+    /// Adds a Microsoft 365 shared mailbox the signed-in user has *Full Access* to. IMAP
+    /// authenticates as the mailbox (XOAUTH2 with the user's token); SMTP as the user, sending
+    /// with the mailbox as `From`, which needs *Send As*. Each shared mailbox gets its own
+    /// sign-in and refresh token, so rotated tokens never have to be shared between accounts.
+    pub async fn add_shared_mailbox(
+        self: &Arc<Self>,
+        shared_email: String,
+        login_hint: Option<String>,
+        open_browser: impl FnOnce(&str) -> Result<()>,
+    ) -> Result<Account> {
+        let provider = Provider::Outlook;
+        let shared = shared_email.trim().to_lowercase();
+        if !shared.contains('@') {
+            return Err(Error::Config("Escribe la dirección del buzón compartido".into()));
+        }
+        if self.store.account_by_email(&shared).await?.is_some() {
+            return Err(Error::Config(format!("La cuenta {shared} ya está configurada")));
+        }
+        let preset = providers::preset(provider).ok_or_else(|| Error::Config("Proveedor sin OAuth".into()))?;
+        let (tokens, identity) = oauth::authorize(provider, login_hint.as_deref(), open_browser).await?;
+        let user = identity
+            .email
+            .or(login_hint)
+            .ok_or_else(|| Error::Auth("Microsoft no devolvió tu dirección de correo".into()))?;
+        if user.eq_ignore_ascii_case(&shared) {
+            return Err(Error::Config(
+                "Esa es tu propia cuenta: agrégala como cuenta normal de Outlook".into(),
+            ));
+        }
+        let refresh = tokens
+            .refresh_token
+            .clone()
+            .ok_or_else(|| Error::Auth("Microsoft no entregó un refresh token".into()))?;
+        let account = Account {
+            id: uuid::Uuid::new_v4().to_string(),
+            provider,
+            display_name: shared.split('@').next().unwrap_or(&shared).to_string(),
+            username: shared.clone(),
+            email: shared.clone(),
+            imap: preset.imap,
+            smtp: preset.smtp,
+            color: self.next_color().await,
+            auth_user: Some(user.clone()),
+        };
+        let imap_cred = Credential::OAuth { user: shared.clone(), access_token: tokens.access_token.clone() };
+        match imap::connect(&account.imap, &imap_cred).await {
+            Ok(mut session) => {
+                session.logout().await.ok();
+            }
+            Err(Error::Auth(e)) => {
+                return Err(Error::Auth(format!(
+                    "Tu usuario {user} no tiene acceso al buzón {shared}. Pide al administrador el permiso \"Full Access\" (acceso total) sobre ese buzón. ({e})"
+                )))
+            }
+            Err(e) => return Err(e),
+        }
+        let smtp_cred = Credential::OAuth { user: user.clone(), access_token: tokens.access_token.clone() };
+        crate::smtp::verify(&account.smtp, &smtp_cred).await?;
 
         self.secrets.store(&account.id, SecretKind::RefreshToken, &refresh).await?;
         self.tokens.lock().await.insert(account.id.clone(), (tokens.access_token, tokens.expires_at));
@@ -219,6 +287,7 @@ impl MailService {
             imap: req.imap,
             smtp: req.smtp,
             color: self.next_color().await,
+            auth_user: None,
         };
         self.secrets.store(&account.id, SecretKind::Password, &req.password).await?;
         self.store.insert_account(&account).await?;
@@ -735,11 +804,16 @@ impl MailService {
         let built = mime::build_outgoing(&account, out, self.forwarded(out).await?, true)?;
         let raw = built.message.formatted();
         let cred = self.credential(&account).await?;
-        crate::smtp::send(&account.smtp, &cred, built.message).await?;
+        crate::smtp::send(&account.smtp, &smtp_credential(&account, &cred), built.message)
+            .await
+            .map_err(|e| send_as_error(&account, e))?;
 
         // Gmail and Microsoft 365 store a copy in Sent automatically; generic servers don't.
+        // Exchange puts mail sent *as* a shared mailbox in the sender's own Sent Items, so the
+        // shared mailbox gets its copy here (a duplicate collapses by Message-ID if the admin
+        // also enabled MessageCopyForSentAsEnabled).
         let mut session = imap::connect(&account.imap, &cred).await?;
-        if account.provider == Provider::Imap {
+        if account.provider == Provider::Imap || account.auth_user.is_some() {
             if let Some(sent) = self.store.folder_by_role(&account.id, FolderRole::Sent).await? {
                 imap::append(&mut session, &sent.path, &raw, "(\\Seen)").await?;
             }
@@ -815,5 +889,59 @@ impl MailService {
 
     pub async fn trust_sender(&self, email: &str) -> Result<()> {
         self.store.trust_sender(email).await
+    }
+}
+
+/// SMTP credential for an account: the same secret as IMAP, but shared mailboxes
+/// authenticate as the delegate user.
+fn smtp_credential(account: &Account, cred: &Credential) -> Credential {
+    match cred {
+        Credential::OAuth { access_token, .. } => {
+            Credential::OAuth { user: account.smtp_user().to_string(), access_token: access_token.clone() }
+        }
+        Credential::Password { password, .. } => {
+            Credential::Password { user: account.smtp_user().to_string(), password: password.clone() }
+        }
+    }
+}
+
+/// Turns Exchange's `5.2.252 SendAsDenied` into an actionable message for shared mailboxes.
+fn send_as_error(account: &Account, e: Error) -> Error {
+    match (&account.auth_user, &e) {
+        (Some(user), Error::Smtp(inner)) if inner.to_string().contains("SendAsDenied") => Error::Auth(format!(
+            "Tu usuario {user} no tiene permiso para enviar como {}. Pide al administrador el permiso \"Send As\" (enviar como) sobre ese buzón.",
+            account.email
+        )),
+        _ => e,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Security, ServerConfig};
+
+    fn account(auth_user: Option<&str>) -> Account {
+        let s = ServerConfig { host: "outlook.office365.com".into(), port: 993, security: Security::Tls };
+        Account {
+            id: "a".into(),
+            provider: Provider::Outlook,
+            email: "ventas@empresa.cl".into(),
+            display_name: "ventas".into(),
+            username: "ventas@empresa.cl".into(),
+            imap: s.clone(),
+            smtp: s,
+            color: "#000".into(),
+            auth_user: auth_user.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn shared_mailbox_smtp_authenticates_as_delegate() {
+        let imap = Credential::OAuth { user: "ventas@empresa.cl".into(), access_token: "t".into() };
+        let shared = smtp_credential(&account(Some("juan@empresa.cl")), &imap);
+        assert!(matches!(shared, Credential::OAuth { ref user, ref access_token } if user == "juan@empresa.cl" && access_token == "t"));
+        let regular = smtp_credential(&account(None), &imap);
+        assert!(matches!(regular, Credential::OAuth { ref user, .. } if user == "ventas@empresa.cl"));
     }
 }

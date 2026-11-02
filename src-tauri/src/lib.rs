@@ -140,6 +140,7 @@ pub fn run() {
             commands::list_accounts,
             commands::detect_config,
             commands::add_oauth_account,
+            commands::add_shared_mailbox,
             commands::add_password_account,
             commands::remove_account,
             commands::update_account,

@@ -10,6 +10,9 @@
   let error = $state<string | null>(null);
 
   let hint = $state('');
+  // Microsoft 365 shared mailbox: sign in with your own user, access the shared address.
+  let shared = $state(false);
+  let sharedEmail = $state('');
 
   let email = $state('');
   let name = $state('');
@@ -29,14 +32,26 @@
     provider = p;
     error = null;
     step = p === 'imap' ? 'imap' : 'oauth';
+    shared = false;
+  }
+
+  function toggleShared() {
+    shared = !shared;
+    error = null;
+    // Prefill "your account" with an Outlook account that's already set up.
+    if (shared && !hint.trim()) {
+      hint = app.accounts.find((a) => a.provider === 'outlook' && !a.authUser)?.email ?? '';
+    }
   }
 
   async function startOAuth() {
     busy = true;
     error = null;
     try {
-      const account = await api.addOAuthAccount(provider, hint.trim() || null);
-      app.toast(`Cuenta ${account.email} conectada`, 'success');
+      const account = shared
+        ? await api.addSharedMailbox(sharedEmail.trim(), hint.trim() || null)
+        : await api.addOAuthAccount(provider, hint.trim() || null);
+      app.toast(shared ? `Buzón compartido ${account.email} conectado` : `Cuenta ${account.email} conectada`, 'success');
       app.showWizard = false;
     } catch (e) {
       error = String(e);
@@ -115,14 +130,29 @@
             <p>Se abrirá tu navegador en la página oficial de {provider === 'gmail' ? 'Google' : 'Microsoft'}. Cornamusa nunca ve tu contraseña; solo recibe un permiso revocable que se guarda en el llavero del sistema.</p>
           </div>
         </div>
-        <label class="field">Correo (opcional)
-          <input class="input" type="email" bind:value={hint} placeholder={provider === 'gmail' ? 'tu@gmail.com' : 'tu@outlook.com'} disabled={busy} />
-        </label>
-        <button class="btn primary big" onclick={startOAuth} disabled={busy}>
+        {#if shared}
+          <label class="field">Dirección del buzón compartido
+            <input class="input" type="email" bind:value={sharedEmail} placeholder="ventas@tuempresa.cl" disabled={busy} />
+          </label>
+          <label class="field">Tu cuenta (con la que inicias sesión)
+            <input class="input" type="email" bind:value={hint} placeholder="tu@tuempresa.cl" disabled={busy} />
+          </label>
+          <p class="faint small">Necesitas el permiso <em>Full Access</em> sobre el buzón para leerlo y <em>Send As</em> para enviar desde él; los asigna el administrador de Microsoft 365.</p>
+        {:else}
+          <label class="field">Correo (opcional)
+            <input class="input" type="email" bind:value={hint} placeholder={provider === 'gmail' ? 'tu@gmail.com' : 'tu@outlook.com'} disabled={busy} />
+          </label>
+        {/if}
+        <button class="btn primary big" onclick={startOAuth} disabled={busy || (shared && !sharedEmail.includes('@'))}>
           <ExternalLink size={16} />
           {busy ? 'Esperando autorización en el navegador…' : `Continuar con ${provider === 'gmail' ? 'Google' : 'Microsoft'}`}
         </button>
         {#if busy}<p class="faint small">Completa el inicio de sesión en el navegador y vuelve aquí.</p>{/if}
+        {#if provider === 'outlook' && !busy}
+          <button type="button" class="adv" onclick={toggleShared}>
+            {shared ? 'Agregar mi propia cuenta en su lugar' : '¿Buzón compartido de la empresa? Agrégalo aquí'}
+          </button>
+        {/if}
       {:else}
         <form onsubmit={connectImap}>
           <div class="grid">
@@ -182,6 +212,7 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .hint { margin: 0; font-size: 12.5px; color: var(--text-2); background: var(--surface-2); padding: 8px 10px; border-radius: 8px; }
   .adv { display: flex; align-items: center; gap: 4px; border: none; background: none; color: var(--text-2); padding: 0; font-size: 13px; }
+  .big + .adv, .small + .adv { margin-top: 12px; }
   .servers { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
   .srv { display: flex; gap: 8px; align-items: center; }
   .tag { width: 44px; font-size: 12px; font-weight: 700; color: var(--text-3); }

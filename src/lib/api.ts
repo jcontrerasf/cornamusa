@@ -18,6 +18,8 @@ export interface Account {
   imap: ServerConfig;
   smtp: ServerConfig;
   color: string;
+  /** Shared mailbox: the user who signs in (and sends); null for regular accounts. */
+  authUser: string | null;
 }
 
 export interface Folder {
@@ -141,6 +143,8 @@ export const api = {
   detectConfig: (email: string) => invoke<DetectedConfig>('detect_config', { email }),
   addOAuthAccount: (provider: Provider, loginHint: string | null) =>
     invoke<Account>('add_oauth_account', { provider, loginHint }),
+  addSharedMailbox: (sharedEmail: string, loginHint: string | null) =>
+    invoke<Account>('add_shared_mailbox', { sharedEmail, loginHint }),
   addPasswordAccount: (request: {
     email: string; displayName: string; username: string | null; password: string; imap: ServerConfig; smtp: ServerConfig;
   }) => invoke<Account>('add_password_account', { request }),

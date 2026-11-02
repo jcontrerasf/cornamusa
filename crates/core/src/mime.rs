@@ -435,6 +435,7 @@ JVBERi0xLjQK\r\n\
             imap: server.clone(),
             smtp: server,
             color: "#000".into(),
+            auth_user: None,
         };
         let out = OutgoingMessage {
             account_id: "a".into(),
@@ -486,6 +487,7 @@ From:  Juan <juan@example.com>\r\nSend time:  Saturday\r\n\r\nHi Ana,\r\n--b\r\n
         let account = Account {
             id: "a".into(), provider: Provider::Imap, email: "yo@example.com".into(), display_name: "Yo".into(),
             username: "yo".into(), imap: server.clone(), smtp: server, color: "#000".into(),
+            auth_user: None,
         };
         let out = OutgoingMessage {
             account_id: "a".into(), to: vec![], cc: vec![], bcc: vec![], subject: "Idea".into(),

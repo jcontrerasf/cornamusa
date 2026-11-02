@@ -93,6 +93,7 @@ fn account(r: &SqliteRow) -> Result<Account> {
         imap: serde_json::from_str(r.get::<&str, _>("imap_json")).map_err(|e| Error::Other(e.to_string()))?,
         smtp: serde_json::from_str(r.get::<&str, _>("smtp_json")).map_err(|e| Error::Other(e.to_string()))?,
         color: r.get("color"),
+        auth_user: r.get("auth_user"),
     })
 }
 
@@ -132,8 +133,8 @@ impl Store {
 
     pub async fn insert_account(&self, a: &Account) -> Result<()> {
         sqlx::query(
-            "INSERT INTO accounts (id, provider, email, display_name, username, imap_json, smtp_json, color, position)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM accounts))",
+            "INSERT INTO accounts (id, provider, email, display_name, username, imap_json, smtp_json, color, auth_user, position)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM accounts))",
         )
         .bind(&a.id)
         .bind(a.provider.as_str())
@@ -143,6 +144,7 @@ impl Store {
         .bind(json(&a.imap))
         .bind(json(&a.smtp))
         .bind(&a.color)
+        .bind(&a.auth_user)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -831,6 +833,7 @@ mod tests {
             imap: s.clone(),
             smtp: s,
             color: "#123".into(),
+            auth_user: None,
         }
     }
 
@@ -941,6 +944,17 @@ mod tests {
         st.chat_view = true;
         s.save_settings(&st).await.unwrap();
         assert!(s.settings().await.unwrap().chat_view);
+
+        // Shared mailbox accounts keep their delegate user.
+        let mut shared = acct();
+        shared.id = "shared".into();
+        shared.email = "ventas@x.com".into();
+        shared.username = "ventas@x.com".into();
+        shared.auth_user = Some("yo@x.com".into());
+        s.insert_account(&shared).await.unwrap();
+        assert_eq!(s.account("shared").await.unwrap().auth_user.as_deref(), Some("yo@x.com"));
+        assert_eq!(s.account("acc").await.unwrap().auth_user, None);
+        s.delete_account("shared").await.unwrap();
 
         // Settings saved by an older version (no `sidebarCollapsed`) must still load as saved.
         sqlx::query("UPDATE settings SET value = ? WHERE key = 'app'")

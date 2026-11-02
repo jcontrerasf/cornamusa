@@ -103,7 +103,7 @@
             </div>
             <div class="info">
               <input class="input" bind:value={a.displayName} onchange={() => saveAccount(a)} title="Nombre que verán los destinatarios" />
-              <div class="faint small">{a.email} · {PROVIDER[a.provider]} · {a.imap.host}</div>
+              <div class="faint small">{a.email} · {a.authUser ? `Buzón compartido · vía ${a.authUser}` : `${PROVIDER[a.provider]} · ${a.imap.host}`}</div>
               {#if app.syncErrors[a.id]}<div class="error small">{app.syncErrors[a.id]}</div>{/if}
             </div>
             <button class="icon-btn" title="Sincronizar ahora" onclick={() => api.syncAccount(a.id).catch((e) => app.error(e))}><RefreshCw size={16} /></button>

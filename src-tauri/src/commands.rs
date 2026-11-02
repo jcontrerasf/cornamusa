@@ -43,6 +43,23 @@ pub async fn add_oauth_account(
 }
 
 #[tauri::command]
+pub async fn add_shared_mailbox(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    shared_email: String,
+    login_hint: Option<String>,
+) -> Cmd<Account> {
+    state
+        .service
+        .add_shared_mailbox(shared_email, login_hint, |url| {
+            app.opener()
+                .open_url(url, None::<&str>)
+                .map_err(|e| Error::Other(format!("No se pudo abrir el navegador: {e}")))
+        })
+        .await
+}
+
+#[tauri::command]
 pub async fn add_password_account(state: State<'_, AppState>, request: PasswordAccountRequest) -> Cmd<Account> {
     state.service.add_password_account(request).await
 }
