@@ -665,10 +665,15 @@ impl MailService {
         Ok(out)
     }
 
-    pub async fn save_attachment(&self, message_id: i64, index: usize, dest: &Path) -> Result<()> {
+    /// Name, MIME type and contents of an attachment (downloading the body if needed).
+    pub async fn attachment_bytes(&self, message_id: i64, index: usize) -> Result<(String, String, Vec<u8>)> {
         self.ensure_bodies(&[message_id]).await?;
         let raw = self.store.raw(message_id).await?.ok_or_else(|| Error::NotFound("mensaje".into()))?;
-        let (_, _, bytes) = mime::attachment(&raw, index)?;
+        mime::attachment(&raw, index)
+    }
+
+    pub async fn save_attachment(&self, message_id: i64, index: usize, dest: &Path) -> Result<()> {
+        let (_, _, bytes) = self.attachment_bytes(message_id, index).await?;
         tokio::fs::write(dest, bytes).await?;
         Ok(())
     }

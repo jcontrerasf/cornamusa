@@ -159,15 +159,21 @@ pub fn parse_full(raw: &[u8], allow_remote: bool) -> Result<ParsedBody> {
     let attachments = msg
         .attachments()
         .enumerate()
-        .map(|(index, part)| AttachmentInfo {
-            index,
-            filename: part
+        .map(|(index, part)| {
+            let filename = part
                 .attachment_name()
                 .map(sanitize_filename)
-                .unwrap_or_else(|| format!("adjunto-{}", index + 1)),
-            mime_type: mime_of(part),
-            size: part.contents().len(),
-            inline: is_inline(part),
+                .unwrap_or_else(|| format!("adjunto-{}", index + 1));
+            let mime_type = mime_of(part);
+            AttachmentInfo {
+                index,
+                kind: crate::attachments::classify(&filename, &mime_type),
+                can_open: crate::attachments::can_open_externally(&filename, &mime_type),
+                filename,
+                mime_type,
+                size: part.contents().len(),
+                inline: is_inline(part),
+            }
         })
         .collect::<Vec<_>>();
 

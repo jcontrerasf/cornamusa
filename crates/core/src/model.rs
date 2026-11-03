@@ -191,6 +191,10 @@ pub struct AttachmentInfo {
     pub mime_type: String,
     pub size: usize,
     pub inline: bool,
+    /// What the UI may do with it (view, open externally, or only save).
+    pub kind: crate::attachments::AttachmentKind,
+    /// Whether it may be handed to a system application.
+    pub can_open: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +294,14 @@ pub struct Settings {
     /// versions loadable (a parse failure would silently reset every setting).
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    /// Sound for new mail: one of the bundled sounds ("corneta-suave", "corneta-cartero",
+    /// "gaita-breve", played by the UI), "system" (the notification's own sound) or "none".
+    #[serde(default = "default_sound")]
+    pub new_mail_sound: String,
+}
+
+fn default_sound() -> String {
+    "corneta-suave".into()
 }
 
 impl Default for Settings {
@@ -303,6 +315,7 @@ impl Default for Settings {
             load_remote_images: false,
             start_minimized: false,
             sidebar_collapsed: false,
+            new_mail_sound: default_sound(),
         }
     }
 }

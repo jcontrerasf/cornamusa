@@ -963,7 +963,7 @@ mod tests {
             .await
             .unwrap();
         let old = s.settings().await.unwrap();
-        assert!(!old.close_to_tray && old.chat_view && old.theme == "dark" && !old.sidebar_collapsed);
+        assert!(!old.close_to_tray && old.chat_view && old.theme == "dark" && !old.sidebar_collapsed && old.new_mail_sound == "corneta-suave");
 
         s.delete_account("acc").await.unwrap();
         assert!(s.accounts().await.unwrap().is_empty());

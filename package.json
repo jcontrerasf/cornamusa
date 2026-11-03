@@ -18,7 +18,8 @@
     "@tiptap/extension-text-style": "^3.32.0",
     "@tiptap/extensions": "^3.32.0",
     "@tiptap/pm": "^3.32.0",
-    "@tiptap/starter-kit": "^3.32.0"
+    "@tiptap/starter-kit": "^3.32.0",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

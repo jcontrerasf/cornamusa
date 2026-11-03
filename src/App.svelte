@@ -9,6 +9,8 @@
   import Settings from './lib/components/Settings.svelte';
   import AccountWizard from './lib/components/AccountWizard.svelte';
   import Toasts from './lib/components/Toasts.svelte';
+  import AttachmentViewer from './lib/components/AttachmentViewer.svelte';
+  import { playSound } from './lib/sounds';
 
   let list: ThreadList | undefined = $state();
   let pane: ReadingPane | undefined = $state();
@@ -46,6 +48,12 @@
           case 'mailboxChanged':
             scheduleRefresh(e.accountId);
             break;
+          case 'newMail': {
+            // One sound per batch; the backend emits a single event for several new messages.
+            const s = app.settings;
+            if (s && s.notifications && !s.doNotDisturb && e.messages.length) playSound(s.newMailSound);
+            break;
+          }
           case 'syncStatus':
             app.syncing[e.accountId] = e.syncing;
             if (!e.syncing) app.syncErrors[e.accountId] = e.error;
@@ -81,7 +89,7 @@
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
     if (t.closest('input, textarea, select, [contenteditable="true"]')) return;
-    if (app.composer || app.showSettings || app.showWizard || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (app.composer || app.showSettings || app.showWizard || app.viewer || e.ctrlKey || e.metaKey || e.altKey) return;
     const actions: Record<string, () => void> = {
       c: () => app.compose(),
       '/': () => list?.focusSearch(),
@@ -124,6 +132,7 @@
 {/if}
 {#if app.showSettings}<Settings />{/if}
 {#if app.showWizard}<AccountWizard />{/if}
+{#if app.viewer}<AttachmentViewer />{/if}
 <Toasts />
 
 <style>

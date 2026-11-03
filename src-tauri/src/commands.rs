@@ -1,6 +1,8 @@
 //! Commands exposed to the frontend. They are thin wrappers over `MailService`.
 
 use crate::AppState;
+use cornamusa_core::attachments::{can_open_externally, classify, AttachmentKind};
+use cornamusa_core::mime::sanitize_filename;
 use cornamusa_core::model::*;
 use cornamusa_core::providers::DetectedConfig;
 use cornamusa_core::service::{MoveTarget, PasswordAccountRequest};
@@ -217,6 +219,49 @@ pub async fn save_attachment(app: AppHandle, state: State<'_, AppState>, message
     let Some(dest) = dest.and_then(|d| d.into_path().ok()) else { return Ok(false) };
     state.service.save_attachment(message_id, index, &dest).await?;
     Ok(true)
+}
+
+/// Bytes of an image/PDF attachment for the built-in viewer (raw binary, no base64).
+#[tauri::command]
+pub async fn read_attachment(state: State<'_, AppState>, message_id: i64, index: usize) -> Cmd<tauri::ipc::Response> {
+    let (name, mime, bytes) = state.service.attachment_bytes(message_id, index).await?;
+    match classify(&name, &mime) {
+        AttachmentKind::Image | AttachmentKind::Pdf => Ok(tauri::ipc::Response::new(bytes)),
+        _ => Err(Error::Other("Este tipo de adjunto no se puede previsualizar".into())),
+    }
+}
+
+/// Writes an attachment to the temporary folder and returns its path. Refuses anything that
+/// isn't on the allowlist: risky types can only be saved.
+async fn temp_copy(app: &AppHandle, state: &AppState, message_id: i64, index: usize) -> Result<std::path::PathBuf> {
+    let (name, mime, bytes) = state.service.attachment_bytes(message_id, index).await?;
+    if !can_open_externally(&name, &mime) {
+        return Err(Error::Other(format!(
+            "Por seguridad, «{name}» no se puede abrir desde Cornamusa. Guárdalo y revísalo antes de abrirlo."
+        )));
+    }
+    let dir = crate::attachments_dir(app)?.join(format!("{message_id}-{index}"));
+    tokio::fs::create_dir_all(&dir).await?;
+    let path = dir.join(sanitize_filename(&name));
+    tokio::fs::write(&path, bytes).await?;
+    Ok(path)
+}
+
+/// Opens an attachment with the system's default application.
+#[tauri::command]
+pub async fn open_attachment(app: AppHandle, state: State<'_, AppState>, message_id: i64, index: usize) -> Cmd<()> {
+    let path = temp_copy(&app, &state, message_id, index).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| Error::Other(format!("No se pudo abrir el adjunto: {e}")))
+}
+
+/// "Abrir con…": lets the user pick the application. Returns false when it fell back to the
+/// default application (no chooser available).
+#[tauri::command]
+pub async fn open_attachment_with(app: AppHandle, state: State<'_, AppState>, message_id: i64, index: usize) -> Cmd<bool> {
+    let path = temp_copy(&app, &state, message_id, index).await?;
+    crate::open_with::choose_and_open(&app, &path).await
 }
 
 // ---------------------------------------------------------------- search

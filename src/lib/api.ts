@@ -53,7 +53,14 @@ export interface MessageSummary {
   hasAttachments: boolean;
 }
 
-export interface AttachmentInfo { index: number; filename: string; mimeType: string; size: number; inline: boolean }
+export type AttachmentKind = 'image' | 'pdf' | 'external' | 'saveOnly';
+export interface AttachmentInfo {
+  index: number; filename: string; mimeType: string; size: number; inline: boolean;
+  /** What the UI may do: view (image/pdf), open with a system app, or only save. */
+  kind: AttachmentKind;
+  /** Whether it may be handed to a system application. */
+  canOpen: boolean;
+}
 
 export interface MessageBody {
   summary: MessageSummary;
@@ -116,6 +123,8 @@ export interface Settings {
   loadRemoteImages: boolean;
   startMinimized: boolean;
   sidebarCollapsed: boolean;
+  /** Bundled sound name, 'system' or 'none'. */
+  newMailSound: string;
 }
 
 export interface SettingsView extends Settings { autostart: boolean }
@@ -175,6 +184,9 @@ export const api = {
   pickAttachments: () => invoke<PickedFile[]>('pick_attachments'),
   inspectFiles: (paths: string[]) => invoke<PickedFile[]>('inspect_files', { paths }),
   saveAttachment: (messageId: number, index: number) => invoke<boolean>('save_attachment', { messageId, index }),
+  readAttachment: (messageId: number, index: number) => invoke<ArrayBuffer>('read_attachment', { messageId, index }),
+  openAttachment: (messageId: number, index: number) => invoke<void>('open_attachment', { messageId, index }),
+  openAttachmentWith: (messageId: number, index: number) => invoke<boolean>('open_attachment_with', { messageId, index }),
 
   search: (query: string, accountId: string | null = null) => invoke<MessageSummary[]>('search', { query, accountId }),
   contacts: (prefix: string) => invoke<EmailAddress[]>('contacts', { prefix }),

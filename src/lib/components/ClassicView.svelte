@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { MessageBody } from '../api';
   import { app } from '../state.svelte';
   import { displayName, formatFullDate, formatListDate } from '../util';
@@ -20,7 +21,8 @@
     messages.forEach((m, i) => {
       if (i === messages.length - 1) next[m.summary.id] = true;
     });
-    expanded = { ...next, ...expanded };
+    // Read without tracking: writing to state this effect depends on would loop forever.
+    expanded = { ...next, ...untrack(() => expanded) };
   });
 
   const subject = $derived(messages[0]?.summary.subject || '(sin asunto)');

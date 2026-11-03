@@ -1,4 +1,4 @@
-import { api, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget } from './api';
+import { api, type AttachmentInfo, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget } from './api';
 
 export type View =
   | { kind: 'unified'; role: FolderRole }
@@ -35,6 +35,8 @@ class AppState {
   composer = $state<ComposeInit | null>(null);
   showSettings = $state<null | 'general' | 'accounts' | 'signatures'>(null);
   showWizard = $state(false);
+  /** Attachment open in the built-in viewer. */
+  viewer = $state<{ message: MessageBody; index: number } | null>(null);
   toasts = $state<Toast[]>([]);
   pageSize = $state(100);
 
@@ -77,6 +79,41 @@ class AppState {
       this.compose({ mode: 'new', to: [{ name: null, email: addr }] });
     } else if (/^https?:/i.test(href)) {
       api.openExternal(href).catch((err) => this.error(err));
+    }
+  }
+
+  // ---------- attachments ----------
+
+  /** Main action: view images/PDFs in the app, open other safe types with the system app,
+   *  and only save risky ones. */
+  async openAttachment(message: MessageBody, a: AttachmentInfo) {
+    if (a.kind === 'image' || a.kind === 'pdf') this.viewer = { message, index: a.index };
+    else if (a.canOpen) await this.openAttachmentDefault(message, a);
+    else await this.saveAttachment(message, a);
+  }
+
+  async openAttachmentDefault(message: MessageBody, a: AttachmentInfo) {
+    try {
+      await api.openAttachment(message.summary.id, a.index);
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  async openAttachmentWith(message: MessageBody, a: AttachmentInfo) {
+    try {
+      const chooser = await api.openAttachmentWith(message.summary.id, a.index);
+      if (!chooser) this.toast('Tu escritorio no ofrece un selector de aplicaciones; se abrió con la predeterminada');
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  async saveAttachment(message: MessageBody, a: AttachmentInfo) {
+    try {
+      if (await api.saveAttachment(message.summary.id, a.index)) this.toast('Adjunto guardado', 'success');
+    } catch (e) {
+      this.error(e);
     }
   }
 

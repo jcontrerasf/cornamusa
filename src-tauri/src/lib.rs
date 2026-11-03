@@ -1,4 +1,5 @@
 mod commands;
+mod open_with;
 mod tray;
 
 use cornamusa_core::model::Settings;
@@ -25,7 +26,8 @@ impl EventSink for TauriSink {
             Event::NewMail(ev) => {
                 let s = self.settings.read().unwrap().clone();
                 if s.notifications && !s.do_not_disturb {
-                    notify_new_mail(&self.app, ev);
+                    // Bundled sounds are played by the UI; only "system" uses the notification's.
+                    notify_new_mail(&self.app, ev, s.new_mail_sound == "system");
                 }
             }
             Event::UnreadCount { count } => tray::set_unread(&self.app, *count),
@@ -35,7 +37,16 @@ impl EventSink for TauriSink {
     }
 }
 
-fn notify_new_mail(app: &AppHandle, ev: &cornamusa_core::model::NewMailEvent) {
+/// Name of the platform's standard new-mail sound, as each notification backend expects it.
+const NEW_MAIL_SOUND: &str = if cfg!(target_os = "linux") {
+    "message-new-email" // freedesktop sound theme
+} else if cfg!(target_os = "windows") {
+    "Mail" // ms-winsoundevent:Notification.Mail
+} else {
+    "default"
+};
+
+fn notify_new_mail(app: &AppHandle, ev: &cornamusa_core::model::NewMailEvent, sound: bool) {
     let (title, body) = match ev.messages.as_slice() {
         [] => return,
         [m] => {
@@ -49,7 +60,11 @@ fn notify_new_mail(app: &AppHandle, ev: &cornamusa_core::model::NewMailEvent) {
             many.iter().take(3).map(|m| format!("• {}", m.subject)).collect::<Vec<_>>().join("\n"),
         ),
     };
-    let _ = app.notification().builder().title(title).body(body).show();
+    let mut builder = app.notification().builder().title(title).body(body);
+    if sound {
+        builder = builder.sound(NEW_MAIL_SOUND);
+    }
+    let _ = builder.show();
 }
 
 pub fn show_main_window(app: &AppHandle) {
@@ -57,6 +72,32 @@ pub fn show_main_window(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+/// Temporary copies of attachments opened with system applications.
+pub(crate) fn attachments_dir(app: &AppHandle) -> cornamusa_core::Result<std::path::PathBuf> {
+    app.path()
+        .app_cache_dir()
+        .map(|d| d.join("adjuntos"))
+        .map_err(|e| cornamusa_core::Error::Other(e.to_string()))
+}
+
+/// Deletes temporary attachment copies older than a day.
+fn clean_attachments_dir(app: &AppHandle) {
+    let Ok(dir) = attachments_dir(app) else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let day = std::time::Duration::from_secs(24 * 3600);
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > day);
+        if old {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -103,6 +144,7 @@ pub fn run() {
             app.manage(AppState { service: service.clone(), settings: settings.clone() });
 
             tray::create(app.handle())?;
+            clean_attachments_dir(app.handle());
 
             let start_hidden =
                 settings.read().unwrap().start_minimized || std::env::args().any(|a| a == "--minimized");
@@ -162,6 +204,9 @@ pub fn run() {
             commands::pick_attachments,
             commands::inspect_files,
             commands::save_attachment,
+            commands::read_attachment,
+            commands::open_attachment,
+            commands::open_attachment_with,
             commands::search,
             commands::contacts,
             commands::list_signatures,

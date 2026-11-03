@@ -1,5 +1,6 @@
 //! Cornamusa core: protocols, storage and mail logic, independent of the UI shell.
 
+pub mod attachments;
 pub mod error;
 pub mod imap;
 pub mod mime;

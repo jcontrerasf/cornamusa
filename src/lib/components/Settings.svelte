@@ -2,7 +2,8 @@
   import { app } from '../state.svelte';
   import { api, type Account } from '../api';
   import SignatureEditor from './SignatureEditor.svelte';
-  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw } from '@lucide/svelte';
+  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play } from '@lucide/svelte';
+  import { SOUNDS, isBundledSound, playSound } from '../sounds';
 
   const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#22c55e', '#0ea5e9'];
   const PROVIDER: Record<string, string> = { gmail: 'Gmail', outlook: 'Outlook / Microsoft 365', imap: 'IMAP' };
@@ -13,6 +14,13 @@
   async function toggle(key: 'closeToTray' | 'notifications' | 'doNotDisturb' | 'loadRemoteImages' | 'startMinimized' | 'autostart') {
     if (!app.settings) return;
     app.settings[key] = !app.settings[key];
+    await app.saveSettings();
+  }
+
+  async function setSound(id: string) {
+    if (!app.settings) return;
+    app.settings.newMailSound = id;
+    playSound(id);
     await app.saveSettings();
   }
 
@@ -72,6 +80,22 @@
           <div class="opt">
             <div><strong>Notificaciones de correo nuevo</strong></div>
             <label class="switch"><input type="checkbox" checked={s.notifications} onchange={() => toggle('notifications')} /><span></span></label>
+          </div>
+          <div class="opt sound">
+            <div><strong>Sonido de correo nuevo</strong><p>Suena junto con la notificación (no con «No molestar»).</p></div>
+            <div class="sounds" role="radiogroup" aria-label="Sonido de correo nuevo">
+              {#each [...SOUNDS, { id: 'system', label: 'Sonido del sistema' }, { id: 'none', label: 'Sin sonido' }] as o (o.id)}
+                <div class="sound-row">
+                  <label>
+                    <input type="radio" name="sound" value={o.id} checked={s.newMailSound === o.id} disabled={!s.notifications} onchange={() => setSound(o.id)} />
+                    {o.label}
+                  </label>
+                  {#if isBundledSound(o.id)}
+                    <button class="icon-btn" title="Probar" onclick={() => playSound(o.id)}><Play size={14} /></button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
           </div>
           <div class="opt">
             <div><strong>No molestar</strong><p>Silencia temporalmente las notificaciones (también desde la bandeja).</p></div>
@@ -134,6 +158,11 @@
   .opt { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
   .opt:last-child { border-bottom: none; }
   .opt p { margin: 3px 0 0; color: var(--text-3); font-size: 12.5px; line-height: 1.4; }
+  .opt.sound { align-items: flex-start; }
+  .sounds { display: flex; flex-direction: column; gap: 2px; min-width: 210px; }
+  .sound-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+  .sound-row label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; }
+  .sound-row .icon-btn { padding: 4px; }
   .seg { display: flex; background: var(--surface-2); padding: 3px; border-radius: 9px; }
   .seg button { border: none; background: none; padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--text-2); }
   .seg button.on { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: var(--shadow); }
