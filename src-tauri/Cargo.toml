@@ -30,6 +30,9 @@ url = "2"
 # "Abrir con…": the desktop portal shows the native application chooser.
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
+# Notifications sent directly so they can carry the "suppress-sound" hint, which the
+# notification plugin drops (Cinnamon plays its own sound otherwise).
+notify-rust = "4.18"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

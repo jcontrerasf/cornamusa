@@ -7,6 +7,7 @@ use cornamusa_core::service::{Event, EventSink, MailService};
 use cornamusa_core::store::Store;
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
@@ -60,6 +61,27 @@ fn notify_new_mail(app: &AppHandle, ev: &cornamusa_core::model::NewMailEvent, so
             many.iter().take(3).map(|m| format!("• {}", m.subject)).collect::<Vec<_>>().join("\n"),
         ),
     };
+    show_notification(app, &title, &body, sound);
+}
+
+/// Linux: some notification servers (Cinnamon) play their own sound for every notification
+/// unless it carries "suppress-sound", which the notification plugin can't send.
+#[cfg(target_os = "linux")]
+fn show_notification(_app: &AppHandle, title: &str, body: &str, sound: bool) {
+    let mut n = notify_rust::Notification::new();
+    n.summary(title).body(body).auto_icon();
+    if sound {
+        n.sound_name(NEW_MAIL_SOUND);
+    } else {
+        n.hint(notify_rust::Hint::SuppressSound(true));
+    }
+    if let Err(e) = n.show() {
+        tracing::warn!("no se pudo mostrar la notificación: {e}");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn show_notification(app: &AppHandle, title: &str, body: &str, sound: bool) {
     let mut builder = app.notification().builder().title(title).body(body);
     if sound {
         builder = builder.sound(NEW_MAIL_SOUND);
