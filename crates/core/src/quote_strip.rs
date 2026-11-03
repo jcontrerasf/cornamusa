@@ -16,6 +16,7 @@ static REPLY_HEADER: LazyLock<Regex> = LazyLock::new(|| {
             il\s.{0,250}\sha\sscritto:\s*$ |
             -{2,}\s*(original\smessage|mensaje\soriginal|message\sd'origine|ursprüngliche\snachricht)\s*-{2,}.*$ |
             -{2,}\s*(original|原始邮件|邮件原文)\s*-{2,}\s*$ |
+            -{2,}\s*(replied\smessage|回复的原邮件)\s*-{2,}\s*$ |
             -{2,}\s*(forwarded\smessage|mensaje\sreenviado)\s*-{2,}.*$ |
             _{20,}\s*$
         )",
@@ -308,6 +309,19 @@ mod tests {
         assert_eq!(strip_quotes(t), "Ok");
         let t = "好的\n\n发件人: Juan\n发送时间: 2026年1月5日\n主题: x";
         assert_eq!(strip_quotes(t), "好的");
+    }
+
+    #[test]
+    fn netease_replied_message() {
+        let t = "Thanks\nBest regards\n\n---- Replied Message ----\nFrom\tJuan <juan@example.com>\nDate\t01/05/2026 09:00\n\nHi Ana,";
+        assert_eq!(strip_quotes(t), "Thanks\nBest regards");
+        let t = "好的\n\n---- 回复的原邮件 ----\n发件人\tJuan";
+        assert_eq!(strip_quotes(t), "好的");
+        let h = r#"<div>Thanks</div><div>Best regards</div><table><tr><td>Ana</td></tr></table><div style="font-size:12px">---- Replied Message ----</div><table><tr><td>From</td><td><a href="mailto:juan@example.com">Juan&lt;juan@example.com&gt;</a></td></tr><tr><td>Date</td><td>01/05/2026 09:00</td></tr></table><div>Hi Ana,</div>"#;
+        let cut = cut_html_quotes(h);
+        assert!(cut.contains("Best regards"));
+        assert!(!cut.contains("Replied Message"));
+        assert!(!cut.contains("Hi Ana"));
     }
 
     #[test]
