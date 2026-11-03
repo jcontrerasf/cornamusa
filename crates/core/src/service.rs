@@ -334,7 +334,18 @@ impl MailService {
     fn start_worker(self: &Arc<Self>, account_id: &str) {
         let me = self.clone();
         let id = account_id.to_string();
-        let handle = tokio::spawn(async move { me.worker(id).await });
+        // Supervises the worker: a panic in it (a bug) would otherwise stop the account from
+        // receiving mail until the app restarts.
+        let handle = tokio::spawn(async move {
+            use futures::FutureExt;
+            loop {
+                if std::panic::AssertUnwindSafe(me.clone().worker(id.clone())).catch_unwind().await.is_ok() {
+                    return;
+                }
+                tracing::error!(account = %id, "worker panicked, restarting");
+                tokio::time::sleep(Duration::from_secs(15)).await;
+            }
+        });
         if let Some(old) = self.workers.lock().unwrap().insert(account_id.to_string(), handle) {
             old.abort();
         }
@@ -417,12 +428,11 @@ impl MailService {
         let lock = self.sync_lock(account_id);
         let _g = lock.lock().await;
         self.emit(Event::SyncStatus { account_id: account_id.into(), syncing: true, error: None });
+        // Reports the end of the sync even if it panics or is cancelled, so the UI's spinner stops.
+        let mut status = SyncDone { sink: &*self.sink, account_id, error: Some("sincronización interrumpida".into()) };
         let result = self.sync_account_inner(account_id).await;
-        self.emit(Event::SyncStatus {
-            account_id: account_id.into(),
-            syncing: false,
-            error: result.as_ref().err().map(|e| e.to_string()),
-        });
+        status.error = result.as_ref().err().map(|e| e.to_string());
+        drop(status);
         drop(_g);
         self.mailbox_changed(account_id).await;
         result
@@ -899,6 +909,19 @@ impl MailService {
 
 /// SMTP credential for an account: the same secret as IMAP, but shared mailboxes
 /// authenticate as the delegate user.
+/// Emits the "sync finished" status when dropped.
+struct SyncDone<'a> {
+    sink: &'a dyn EventSink,
+    account_id: &'a str,
+    error: Option<String>,
+}
+
+impl Drop for SyncDone<'_> {
+    fn drop(&mut self) {
+        self.sink.emit(Event::SyncStatus { account_id: self.account_id.into(), syncing: false, error: self.error.take() });
+    }
+}
+
 fn smtp_credential(account: &Account, cred: &Credential) -> Credential {
     match cred {
         Credential::OAuth { access_token, .. } => {

@@ -75,9 +75,13 @@ fn show_notification(_app: &AppHandle, title: &str, body: &str, sound: bool) {
     } else {
         n.hint(notify_rust::Hint::SuppressSound(true));
     }
-    if let Err(e) = n.show() {
-        tracing::warn!("no se pudo mostrar la notificación: {e}");
-    }
+    // notify-rust talks to D-Bus through zbus's blocking API, which panics when called from a
+    // tokio worker (mail events come from one), so send it from a thread of its own.
+    let _ = std::thread::Builder::new().name("notification".into()).spawn(move || {
+        if let Err(e) = n.show() {
+            tracing::warn!("no se pudo mostrar la notificación: {e}");
+        }
+    });
 }
 
 #[cfg(not(target_os = "linux"))]
