@@ -112,6 +112,20 @@ impl async_imap::Authenticator for XOAuth2Error {
     }
 }
 
+/// TCP keepalive on IMAP connections: the probes keep NATs from dropping a connection waiting in
+/// IDLE, and a dead one (network change, resume from suspend) errors out within ~2 minutes.
+fn set_keepalive(tcp: &TcpStream) {
+    use std::time::Duration;
+    let ka = socket2::TcpKeepalive::new().with_time(Duration::from_secs(60));
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    let ka = ka.with_interval(Duration::from_secs(15));
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let ka = ka.with_retries(4);
+    if let Err(e) = socket2::SockRef::from(tcp).set_tcp_keepalive(&ka) {
+        tracing::debug!("no se pudo activar TCP keepalive: {e}");
+    }
+}
+
 pub async fn connect(cfg: &ServerConfig, cred: &Credential) -> Result<Session> {
     let tcp = tokio::time::timeout(
         std::time::Duration::from_secs(20),
@@ -120,6 +134,7 @@ pub async fn connect(cfg: &ServerConfig, cred: &Credential) -> Result<Session> {
     .await
     .map_err(|_| Error::Other(format!("Tiempo de espera agotado conectando a {}", cfg.host)))??;
     let _ = tcp.set_nodelay(true);
+    set_keepalive(&tcp);
 
     let client = match cfg.security {
         Security::Tls => {

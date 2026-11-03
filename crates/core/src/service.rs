@@ -22,8 +22,12 @@ const INITIAL_WINDOW: u32 = 400;
 /// Bodies downloaded ahead of time per folder sync (for previews and offline reading).
 const PREFETCH_BODIES: i64 = 40;
 const PREFETCH_MAX_SIZE: i64 = 512 * 1024;
-/// RFC 2177 recommends re-issuing IDLE before 29 minutes.
+/// Time an account stays in IDLE before a full resync (which also refreshes OAuth tokens).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
+/// IDLE is re-issued on the same connection this often (RFC 2177 asks for less than 29 minutes):
+/// the traffic keeps routers/NATs from dropping the idle connection, and a dead one shows up in
+/// minutes instead of at the next full resync.
+const IDLE_REFRESH: Duration = Duration::from_secs(5 * 60);
 
 /// Messages to act on, grouped by (folder id, folder path, role).
 type ByFolder = BTreeMap<(i64, String, FolderRole), Vec<(i64, u32)>>;
@@ -370,8 +374,8 @@ impl MailService {
         }
     }
 
-    /// Holds a dedicated connection in IDLE on the inbox; returns after IDLE_TIMEOUT so the
-    /// worker does a full resync (and refreshes OAuth tokens) periodically.
+    /// Holds a dedicated connection in IDLE on the inbox, re-issued every IDLE_REFRESH; returns
+    /// after IDLE_TIMEOUT so the worker does a full resync (and refreshes OAuth tokens) periodically.
     async fn idle_inbox(&self, account_id: &str) -> Result<()> {
         let account = self.store.account(account_id).await?;
         let Some(inbox) = self.store.folder_by_role(account_id, FolderRole::Inbox).await? else {
@@ -395,7 +399,7 @@ impl MailService {
             let mut idle = session.idle();
             idle.init().await?;
             tracing::debug!(account = %account_id, "IDLE started");
-            let (wait, _stop) = idle.wait_with_timeout(remaining);
+            let (wait, _stop) = idle.wait_with_timeout(remaining.min(IDLE_REFRESH));
             let res = wait.await?;
             tracing::debug!(account = %account_id, "IDLE woke up: {res:?}");
             session = idle.done().await?;
@@ -408,7 +412,10 @@ impl MailService {
                     self.notify_new(&account, &inbox, new).await;
                     self.mailbox_changed(account_id).await;
                 }
-                _ => {
+                // Refresh time: the next turn selects the inbox again (a cheap liveness check)
+                // and re-issues IDLE, or returns once IDLE_TIMEOUT is up.
+                async_imap::extensions::idle::IdleResponse::Timeout => {}
+                async_imap::extensions::idle::IdleResponse::ManualInterrupt => {
                     session.logout().await.ok();
                     return Ok(());
                 }
