@@ -67,20 +67,27 @@ fn notify_new_mail(app: &AppHandle, ev: &cornamusa_core::model::NewMailEvent, so
 /// Linux: some notification servers (Cinnamon) play their own sound for every notification
 /// unless it carries "suppress-sound", which the notification plugin can't send.
 #[cfg(target_os = "linux")]
-fn show_notification(_app: &AppHandle, title: &str, body: &str, sound: bool) {
+fn show_notification(app: &AppHandle, title: &str, body: &str, sound: bool) {
     let mut n = notify_rust::Notification::new();
-    n.summary(title).body(body).auto_icon();
+    // "default" is the action the server runs when the notification itself is clicked.
+    n.summary(title).body(body).auto_icon().action("default", "Abrir");
     if sound {
         n.sound_name(NEW_MAIL_SOUND);
     } else {
         n.hint(notify_rust::Hint::SuppressSound(true));
     }
+    let app = app.clone();
     // notify-rust talks to D-Bus through zbus's blocking API, which panics when called from a
     // tokio worker (mail events come from one), so send it from a thread of its own.
-    let _ = std::thread::Builder::new().name("notification".into()).spawn(move || {
-        if let Err(e) = n.show() {
-            tracing::warn!("no se pudo mostrar la notificación: {e}");
-        }
+    let _ = std::thread::Builder::new().name("notification".into()).spawn(move || match n.show() {
+        // The handle owns the D-Bus connection: keep it until the notification closes, because
+        // Cinnamon destroys a windowed app's notifications as soon as their sender leaves the bus.
+        Ok(handle) => handle.wait_for_action(|action| {
+            if action == "default" {
+                show_main_window(&app);
+            }
+        }),
+        Err(e) => tracing::warn!("no se pudo mostrar la notificación: {e}"),
     });
 }
 
