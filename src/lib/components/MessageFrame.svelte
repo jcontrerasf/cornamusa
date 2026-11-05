@@ -85,6 +85,22 @@
     ready = false;
   });
 
+  // Show the mail as soon as its HTML is parsed. The iframe's load event waits for every
+  // remote image, so one slow server (big newsletter images, tracking pixels) kept the whole
+  // mail hidden; images now appear as they arrive and the height follows them.
+  let setUp: Document | null = null;
+  $effect(() => {
+    void srcdoc;
+    let raf = 0;
+    const poll = () => {
+      const doc = frame?.contentDocument;
+      if (doc && doc !== setUp && doc.URL === 'about:srcdoc' && doc.readyState !== 'loading' && doc.body) setup(doc);
+      else raf = requestAnimationFrame(poll);
+    };
+    poll();
+    return () => cancelAnimationFrame(raf);
+  });
+
   /** Makes leftover explicit colors readable on the dark background. */
   function fixDarkColors(doc: Document) {
     const win = doc.defaultView;
@@ -108,13 +124,22 @@
   function onLoad() {
     const doc = frame?.contentDocument;
     if (!doc) return;
+    if (doc !== setUp) setup(doc);
+    else measure(); // all images in: final height
+  }
+
+  function setup(doc: Document) {
+    setUp = doc;
     if (native && doc.body) fixDarkColors(doc);
     ready = true;
     measure();
     observer?.disconnect();
     observer = new ResizeObserver(measure);
     observer.observe(doc.body);
-    doc.querySelectorAll('img').forEach((img) => img.addEventListener('load', measure));
+    doc.querySelectorAll('img').forEach((img) => {
+      img.addEventListener('load', measure);
+      img.addEventListener('error', measure);
+    });
 
     const onLink = (e: MouseEvent) => {
       if (e.type === 'auxclick' && e.button !== 1) return;
