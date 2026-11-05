@@ -6,8 +6,8 @@
   import { api, type AttachmentInfo } from '../api';
   import { app } from '../state.svelte';
   import { formatSize } from '../util';
-  import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ExternalLink, AppWindow, Download } from '@lucide/svelte';
-  import type { PDFDocumentProxy } from 'pdfjs-dist';
+  import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ExternalLink, AppWindow, Download, Lock } from '@lucide/svelte';
+  import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist';
 
   const message = $derived(app.viewer!.message);
   const items = $derived(message.attachments.filter((a) => !a.inline && (a.kind === 'image' || a.kind === 'pdf')));
@@ -29,7 +29,16 @@
   let scroller: HTMLElement | undefined = $state();
   let loadToken = 0;
 
+  // Password-protected PDFs: pdf.js asks through onPassword; the password lives only here.
+  let pendingTask: PDFDocumentLoadingTask | null = null;
+  let pwPrompt = $state.raw<{ update: (pw: string) => void; wrong: boolean } | null>(null);
+  let pwValue = $state('');
+
   function cleanup() {
+    pendingTask?.destroy();
+    pendingTask = null;
+    pwPrompt = null;
+    pwValue = '';
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     imageUrl = null;
     pdf?.destroy();
@@ -52,13 +61,22 @@
         const pdfjs = await import('pdfjs-dist');
         const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-        const doc = await pdfjs.getDocument({
+        const task = pdfjs.getDocument({
           data: new Uint8Array(bytes),
           isEvalSupported: false,
           cMapUrl: '/pdfjs/cmaps/',
           cMapPacked: true,
           standardFontDataUrl: '/pdfjs/standard_fonts/',
-        }).promise;
+        });
+        pendingTask = task;
+        task.onPassword = (update: (pw: string) => void, reason: number) => {
+          if (token !== loadToken) return;
+          pwValue = '';
+          pwPrompt = { update, wrong: reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD };
+          loading = false;
+        };
+        const doc = await task.promise;
+        if (pendingTask === task) pendingTask = null;
         if (token !== loadToken) {
           doc.destroy();
           return;
@@ -109,8 +127,34 @@
     app.viewer = null;
   }
 
+  function submitPassword(e: SubmitEvent) {
+    e.preventDefault();
+    if (!pwPrompt || !pwValue) return;
+    const { update } = pwPrompt;
+    const pw = pwValue;
+    pwPrompt = null;
+    pwValue = '';
+    loading = true;
+    update(pw);
+  }
+
+  function cancelPassword() {
+    loadToken++; // the destroyed task's rejection must not overwrite the message below
+    pendingTask?.destroy();
+    pendingTask = null;
+    pwPrompt = null;
+    pwValue = '';
+    loading = false;
+    failed = 'el PDF está protegido con contraseña';
+  }
+
+  function focusOnMount(node: HTMLElement) {
+    node.focus();
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') close();
+    else if (e.target instanceof HTMLInputElement) return;
     else if (e.key === 'ArrowLeft' && items.length > 1) go(-1);
     else if (e.key === 'ArrowRight' && items.length > 1) go(1);
     else if (e.key === '+' || e.key === '=') zoom(1.2);
@@ -252,6 +296,17 @@
   <div class="stage" class:pdf={!!pdf} class:actual={actualSize} bind:this={scroller} onpointerdown={onDown} onscroll={onScroll}>
     {#if loading}
       <p class="msg">Cargando…</p>
+    {:else if pwPrompt}
+      <form class="pw" onsubmit={submitPassword}>
+        <Lock size={28} />
+        <p>Este PDF está protegido con contraseña.</p>
+        <input type="password" placeholder="Contraseña" autocomplete="off" bind:value={pwValue} use:focusOnMount />
+        {#if pwPrompt.wrong}<p class="pw-wrong">Contraseña incorrecta</p>{/if}
+        <div class="pw-actions">
+          <button type="button" class="pw-btn" onclick={cancelPassword}>Cancelar</button>
+          <button type="submit" class="pw-btn primary" disabled={!pwValue}>Abrir</button>
+        </div>
+      </form>
     {:else if failed}
       <p class="msg">No se pudo mostrar el adjunto: {failed}</p>
     {:else if imageUrl}
@@ -286,6 +341,17 @@
   .stage.actual { place-items: start; }
   .stage.actual img { max-width: none; max-height: none; cursor: grab; }
   .msg { color: #a5abb9; }
+  .pw { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(320px, 100%); padding: 24px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #a5abb9; }
+  .pw p { margin: 0; text-align: center; color: #e8eaf0; }
+  .pw input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.3); color: #e8eaf0; font: inherit; }
+  .pw input:focus { outline: none; border-color: #9494ff; }
+  .pw .pw-wrong { color: #ff8a8a; font-size: 13px; }
+  .pw-actions { display: flex; gap: 8px; align-self: flex-end; }
+  .pw-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); background: transparent; color: #e8eaf0; font: inherit; cursor: pointer; }
+  .pw-btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .pw-btn.primary { background: #6c6cf0; border-color: #6c6cf0; }
+  .pw-btn.primary:hover { background: #7d7dff; }
+  .pw-btn:disabled { opacity: 0.5; cursor: default; }
   .pages { display: flex; flex-direction: column; align-items: center; gap: 14px; }
   .page { position: relative; background: #fff; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); }
   .page :global(canvas) { display: block; }
