@@ -1,7 +1,13 @@
 <script lang="ts">
-  // Renders sanitized email HTML in a sandboxed iframe: no scripts (no allow-scripts), a CSP
-  // that blocks every network load except images when the user allowed them, and links
-  // intercepted so they open in the system browser (or the composer for mailto:).
+  // Renders sanitized email HTML in a sandboxed iframe with a CSP that blocks every script and
+  // every network load except images when the user allowed them. Links are intercepted so they
+  // open in the system browser (or the composer for mailto:).
+  //
+  // The sandbox needs allow-scripts: WebKitGTK (Tauri on Linux) refuses to run *any* event
+  // listener in a frame whose scripts are sandboxed, even listeners added from this parent,
+  // so link clicks and the hover URL bar silently did nothing. The mail itself still can't run
+  // code: the sanitizer strips <script>, on* handlers and javascript: URLs, and the CSP says
+  // script-src 'none' (it applies to the frame's own scripts, not to the parent's listeners).
   import { onDestroy } from 'svelte';
   import { app } from '../state.svelte';
   import { darkTextColor, escapeHtml, isWhiteBackground, looksDarkSafe } from '../util';
@@ -14,7 +20,16 @@
     allowRemote = false,
     mode = 'auto',
     dark = $bindable(),
-  }: { html?: string | null; text?: string | null; allowRemote?: boolean; mode?: Mode; dark?: boolean } = $props();
+    fit = true,
+  }: {
+    html?: string | null;
+    text?: string | null;
+    allowRemote?: boolean;
+    mode?: Mode;
+    dark?: boolean;
+    /** Shrink wide images/tables to the pane. Off for signature previews: shown as sent. */
+    fit?: boolean;
+  } = $props();
 
   let frame: HTMLIFrameElement | undefined = $state();
   let height = $state(80);
@@ -55,12 +70,11 @@
   const srcdoc = $derived.by(() => {
     const remote = allowRemote ? ' https: http:' : '';
     return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${remote}; style-src 'unsafe-inline'${remote}; font-src data:${remote}; media-src 'none'; frame-src 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src data:${remote}; style-src 'unsafe-inline'${remote}; font-src data:${remote}; media-src 'none'; frame-src 'none'; form-action 'none'">
 <style>
   ${themeCss}
-  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;padding:4px 2px;overflow-wrap:anywhere}
-  img{max-width:100%;height:auto}
-  table{max-width:100%}
+  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;padding:4px 2px}
+  ${fit ? 'body{overflow-wrap:anywhere} img{max-width:100%;height:auto} table{max-width:100%}' : ''}
   pre{white-space:pre-wrap}
 </style></head><body>${body}</body></html>`;
   });
@@ -86,7 +100,9 @@
   function measure() {
     const doc = frame?.contentDocument;
     if (!doc?.documentElement) return;
-    height = Math.max(40, doc.documentElement.scrollHeight);
+    // Without fit, a wide signature scrolls sideways inside the frame: leave room for the bar.
+    const bar = !fit && doc.documentElement.scrollWidth > doc.documentElement.clientWidth ? 16 : 0;
+    height = Math.max(40, doc.documentElement.scrollHeight + bar);
   }
 
   function onLoad() {
@@ -100,12 +116,20 @@
     observer.observe(doc.body);
     doc.querySelectorAll('img').forEach((img) => img.addEventListener('load', measure));
 
-    doc.addEventListener('click', (e) => {
+    const onLink = (e: MouseEvent) => {
+      if (e.type === 'auxclick' && e.button !== 1) return;
       const a = (e.target as Element | null)?.closest?.('a');
       if (!a) return;
       e.preventDefault();
-      app.openLink(a.getAttribute('href') ?? '');
-    });
+      const href = (a.getAttribute('href') ?? '').trim();
+      if (href.startsWith('#')) {
+        if (href.length > 1) doc.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView();
+        return;
+      }
+      app.openLink(href);
+    };
+    doc.addEventListener('click', onLink);
+    doc.addEventListener('auxclick', onLink);
     // Show the real destination of a link (anti-phishing).
     doc.addEventListener('mouseover', (e) => {
       const a = (e.target as Element | null)?.closest?.('a');
@@ -121,7 +145,7 @@
   <iframe
     bind:this={frame}
     title="Contenido del mensaje"
-    sandbox="allow-same-origin"
+    sandbox="allow-same-origin allow-scripts"
     referrerpolicy="no-referrer"
     {srcdoc}
     class:dark={native}

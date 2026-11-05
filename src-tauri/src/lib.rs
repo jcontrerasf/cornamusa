@@ -16,6 +16,29 @@ pub struct AppState {
     pub settings: Arc<RwLock<Settings>>,
 }
 
+/// Safety net for links: the app's webview (and the mail iframes inside it) never loads an
+/// outside web page. A web navigation that escapes the click handler in MessageFrame is
+/// cancelled and opened in the system browser instead.
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use tauri_plugin_opener::OpenerExt;
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            if !matches!(url.scheme(), "http" | "https") {
+                return true; // tauri://, about:srcdoc, data:, blob:…
+            }
+            // The app itself: tauri.localhost on Windows, the Vite dev server in debug builds.
+            let host = url.host_str().unwrap_or("");
+            if host == "tauri.localhost" || (cfg!(debug_assertions) && host == "localhost") {
+                return true;
+            }
+            if let Err(e) = webview.app_handle().opener().open_url(url.as_str(), None::<&str>) {
+                tracing::warn!("open link: {e}");
+            }
+            false
+        })
+        .build()
+}
+
 struct TauriSink {
     app: AppHandle,
     settings: Arc<RwLock<Settings>>,
@@ -161,6 +184,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(navigation_guard())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

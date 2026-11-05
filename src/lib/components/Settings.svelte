@@ -50,7 +50,7 @@
 </script>
 
 <div class="overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && (app.showSettings = null)}>
-  <div class="modal settings" role="dialog" aria-label="Configuración">
+  <div class="modal settings" class:wide={tab === 'signatures'} role="dialog" aria-label="Configuración">
     <nav>
       <h3>Configuración</h3>
       <button class:active={tab === 'general'} onclick={() => (app.showSettings = 'general')}><SlidersHorizontal size={16} /> General</button>
@@ -146,6 +146,8 @@
 
 <style>
   .settings { width: min(920px, calc(100vw - 48px)); height: min(680px, calc(100vh - 48px)); flex-direction: row; overflow: hidden; }
+  /* Signatures are usually wide (logo + details side by side): give the editor room. */
+  .settings.wide { width: min(1180px, calc(100vw - 48px)); }
   nav { width: 200px; background: var(--surface-2); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--border); }
   nav h3 { margin: 4px 10px 12px; font-size: 15px; }
   nav button { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: none; background: none; border-radius: 8px; color: var(--text-2); text-align: left; }

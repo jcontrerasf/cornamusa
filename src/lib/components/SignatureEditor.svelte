@@ -10,9 +10,14 @@
   let htmlMode = $state<'visual' | 'code'>('visual');
   let editorKey = $state(0);
 
+  // The visual editor (TipTap) has no tables and drops inline styles, so a typical designed
+  // signature (logo and details side by side) would be flattened there. Open those as code.
+  const hasLayout = (html: string) => /<table\b/i.test(html);
+  const lossy = $derived(!!current?.isHtml && hasLayout(current.body));
+
   function edit(s: Signature) {
     current = { ...s };
-    htmlMode = 'visual';
+    htmlMode = s.isHtml && hasLayout(s.body) ? 'code' : 'visual';
     editorKey++;
   }
 
@@ -105,12 +110,15 @@
         {#if !current.isHtml}
           <textarea class="input code plain selectable" bind:value={current.body} rows="8" placeholder={'Juan Pérez\nGerente de Ventas · ACME\n+56 9 1234 5678'}></textarea>
         {:else if htmlMode === 'visual'}
-          <div class="box"><RichEditor content={current.body} minHeight={160} placeholder="Diseña tu firma…" onchange={(h) => current && (current.body = h)} /></div>
+          {#if lossy}
+            <p class="warn">Esta firma usa tablas, que el editor visual no puede mostrar: si la editas aquí se perderá su diseño. Para verla y editarla tal cual, usa <button class="link" onclick={() => switchHtmlMode('code')}>Código HTML</button>.</p>
+          {/if}
+          <div class="box"><RichEditor content={current.body} minHeight={160} fitWidth={false} placeholder="Diseña tu firma…" onchange={(h) => current && (current.body = h)} /></div>
         {:else}
           <textarea class="input code selectable" bind:value={current.body} rows="10" spellcheck="false"
             placeholder={'<table><tr><td><img src="https://…/logo.png" width="64"></td><td><b>Juan Pérez</b><br>ACME</td></tr></table>'}></textarea>
           <div class="preview-label faint">Vista previa</div>
-          <div class="box preview"><MessageFrame html={current.body} allowRemote mode="light" /></div>
+          <div class="box preview"><MessageFrame html={current.body} allowRemote mode="light" fit={false} /></div>
         {/if}
       {/key}
       <p class="faint small">El HTML se sanitiza al guardar: se eliminan scripts, formularios y atributos peligrosos.</p>
@@ -123,7 +131,7 @@
 
 <style>
   .sig { display: flex; gap: 20px; min-height: 420px; }
-  aside { width: 220px; display: flex; flex-direction: column; gap: 6px; }
+  aside { width: 180px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
   .item { display: flex; align-items: center; border-radius: 10px; border: 1px solid var(--border); }
   .item.active { border-color: var(--accent); background: var(--accent-soft); }
   .pick { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: none; background: none; text-align: left; }
@@ -141,5 +149,7 @@
   .preview { padding: 10px; background: #fff; }
   .preview-label { font-size: 12px; margin-bottom: -6px; }
   .small { font-size: 12px; margin: 0; }
+  .warn { margin: 0; font-size: 12.5px; padding: 8px 12px; border-radius: 9px; background: color-mix(in srgb, #e0a100 14%, transparent); color: var(--text); }
+  .link { border: none; background: none; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
   .empty { flex: 1; display: grid; place-items: center; }
 </style>

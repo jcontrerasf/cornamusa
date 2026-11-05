@@ -15,8 +15,16 @@
     content = '',
     placeholder = 'Escribe tu mensaje…',
     minHeight = 220,
+    fitWidth = true,
     onchange,
-  }: { content?: string; placeholder?: string; minHeight?: number; onchange?: (html: string, text: string) => void } = $props();
+  }: {
+    content?: string;
+    placeholder?: string;
+    minHeight?: number;
+    /** Shrink wide images to the editor. Off for signatures: wide content scrolls sideways. */
+    fitWidth?: boolean;
+    onchange?: (html: string, text: string) => void;
+  } = $props();
 
   let el: HTMLDivElement | undefined = $state();
   let editor = $state<Editor | null>(null);
@@ -110,7 +118,7 @@
     <button type="button" class="icon-btn" title="Deshacer" onclick={() => editor?.chain().focus().undo().run()}><Undo2 size={16} /></button>
     <button type="button" class="icon-btn" title="Rehacer" onclick={() => editor?.chain().focus().redo().run()}><Redo2 size={16} /></button>
   </div>
-  <div class="content selectable" bind:this={el} style:min-height="{minHeight}px"></div>
+  <div class="content selectable" class:fit={fitWidth} bind:this={el} style:min-height="{minHeight}px"></div>
 </div>
 
 <style>
@@ -127,6 +135,7 @@
   .content :global(.ProseMirror p) { margin: 0 0 0.5em; }
   .content :global(.ProseMirror blockquote) { border-left: 3px solid var(--border); margin: 0.5em 0; padding-left: 12px; color: var(--text-2); }
   .content :global(.ProseMirror a) { color: var(--accent); }
-  .content :global(.ProseMirror img) { max-width: 100%; }
+  .content.fit :global(.ProseMirror img) { max-width: 100%; }
+  .content:not(.fit) { overflow-x: auto; }
   .content :global(.ProseMirror p.is-editor-empty:first-child::before) { content: attr(data-placeholder); color: var(--text-3); float: left; height: 0; pointer-events: none; }
 </style>
