@@ -125,6 +125,8 @@ export interface Settings {
   sidebarCollapsed: boolean;
   /** Bundled sound name, 'system' or 'none'. */
   newMailSound: string;
+  /** Folders hidden from the sidebar, as "accountId:path". */
+  hiddenFolders: string[];
 }
 
 export interface SettingsView extends Settings { autostart: boolean }

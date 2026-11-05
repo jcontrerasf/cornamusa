@@ -4,6 +4,7 @@
   import SignatureEditor from './SignatureEditor.svelte';
   import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play } from '@lucide/svelte';
   import { SOUNDS, isBundledSound, playSound } from '../sounds';
+  import { FOLDER_ICONS } from '../folders';
 
   const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#22c55e', '#0ea5e9'];
   const PROVIDER: Record<string, string> = { gmail: 'Gmail', outlook: 'Outlook / Microsoft 365', imap: 'IMAP' };
@@ -133,6 +134,22 @@
             <button class="icon-btn" title="Sincronizar ahora" onclick={() => api.syncAccount(a.id).catch((e) => app.error(e))}><RefreshCw size={16} /></button>
             <button class="icon-btn" title="Quitar cuenta" onclick={() => remove(a)}><Trash2 size={16} /></button>
           </div>
+          {#if (app.folders[a.id] ?? []).length > 0}
+            <details class="folders">
+              <summary>Carpetas en la barra lateral{(app.folders[a.id] ?? []).some((f) => app.isHidden(f)) ? ` · ${(app.folders[a.id] ?? []).filter((f) => app.isHidden(f)).length} ocultas` : ''}</summary>
+              <p class="faint small">Las carpetas ocultas no aparecen con la barra reducida a íconos. Con la barra abierta siguen a mano en «Más carpetas».</p>
+              <div class="folder-list">
+                {#each app.folders[a.id] ?? [] as f (f.id)}
+                  {@const Icon = FOLDER_ICONS[f.role]}
+                  <label class="folder" class:off={app.isHidden(f)} title={f.role === 'inbox' ? 'Recibidos siempre se muestra' : f.path}>
+                    <input type="checkbox" checked={!app.isHidden(f)} disabled={f.role === 'inbox'} onchange={() => app.toggleHidden(f)} />
+                    <Icon size={15} />
+                    <span>{f.name}</span>
+                  </label>
+                {/each}
+              </div>
+            </details>
+          {/if}
         {/each}
         <button class="btn" onclick={() => { app.showSettings = null; app.showWizard = true; }}><Plus size={16} /> Agregar cuenta</button>
         <p class="faint small note">🔒 Las contraseñas y tokens se guardan en el llavero del sistema operativo, nunca en archivos de Cornamusa.</p>
@@ -174,6 +191,13 @@
   .colors button.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor; color: var(--text-2); }
   .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .small { font-size: 12px; }
+  .folders { margin: -4px 0 14px; padding: 0 14px; }
+  .folders summary { cursor: pointer; font-size: 13px; color: var(--text-2); padding: 4px 0; }
+  .folders p { margin: 4px 0 8px; }
+  .folder-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 12px; }
+  .folder { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; min-width: 0; }
+  .folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder.off { color: var(--text-3); }
   .error { color: var(--danger); }
   .note { margin-top: 18px; }
 </style>

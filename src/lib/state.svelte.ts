@@ -65,6 +65,24 @@ class AppState {
     return this.settings?.sidebarCollapsed ?? false;
   }
 
+  // ---------- hidden folders ----------
+
+  folderKey(f: Folder): string {
+    return `${f.accountId}:${f.path}`;
+  }
+
+  isHidden(f: Folder): boolean {
+    return f.role !== 'inbox' && (this.settings?.hiddenFolders ?? []).includes(this.folderKey(f));
+  }
+
+  async toggleHidden(f: Folder) {
+    if (!this.settings || f.role === 'inbox') return;
+    const key = this.folderKey(f);
+    const list = this.settings.hiddenFolders ?? [];
+    this.settings.hiddenFolders = list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
+    await this.saveSettings();
+  }
+
   async toggleSidebar() {
     if (!this.settings) return;
     this.settings.sidebarCollapsed = !this.settings.sidebarCollapsed;

@@ -298,6 +298,10 @@ pub struct Settings {
     /// "gaita-breve", played by the UI), "system" (the notification's own sound) or "none".
     #[serde(default = "default_sound")]
     pub new_mail_sound: String,
+    /// Folders hidden from the sidebar, as "{account_id}:{imap path}" (the path survives a
+    /// cache rebuild, the folder id doesn't).
+    #[serde(default)]
+    pub hidden_folders: Vec<String>,
 }
 
 fn default_sound() -> String {
@@ -316,6 +320,7 @@ impl Default for Settings {
             start_minimized: false,
             sidebar_collapsed: false,
             new_mail_sound: default_sound(),
+            hidden_folders: Vec::new(),
         }
     }
 }

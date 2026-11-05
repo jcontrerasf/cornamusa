@@ -1,27 +1,26 @@
 <script lang="ts">
   import { app, UNIFIED_LABELS } from '../state.svelte';
   import type { Folder, FolderRole } from '../api';
+  import { FOLDER_ICONS as ICONS, showsUnread as showUnread } from '../folders';
   import {
-    Inbox, Send, FileText, Archive, ShieldAlert, Trash2, Folder as FolderIcon, Star, Layers,
     PenSquare, Settings, Plus, ChevronDown, ChevronRight, RefreshCw, AlertCircle, PanelLeftClose, PanelLeftOpen,
+    Eye, EyeOff,
   } from '@lucide/svelte';
 
-  const ICONS: Record<FolderRole, typeof Inbox> = {
-    inbox: Inbox, sent: Send, drafts: FileText, archive: Archive, junk: ShieldAlert,
-    trash: Trash2, all: Layers, flagged: Star, other: FolderIcon,
-  };
   const UNIFIED: FolderRole[] = ['inbox', 'sent', 'drafts', 'archive', 'junk', 'trash'];
 
   let collapsed = $state<Record<string, boolean>>({});
+  /** Accounts whose hidden folders are expanded ("Más carpetas"), expanded sidebar only. */
+  let showHidden = $state<Record<string, boolean>>({});
 
   function isActiveFolder(f: Folder) {
     return app.view.kind === 'folder' && app.view.folderId === f.id;
   }
+  function isActive(f: Folder) {
+    return isActiveFolder(f) || (app.accounts.length === 1 && f.role !== 'other' && isActiveUnified(f.role));
+  }
   function isActiveUnified(role: FolderRole) {
     return app.view.kind === 'unified' && app.view.role === role;
-  }
-  function showUnread(role: FolderRole) {
-    return role === 'inbox' || role === 'junk' || role === 'other';
   }
   // Collapsed mode: names move to the tooltip.
   function tip(name: string, unread: number) {
@@ -80,20 +79,21 @@
           {/if}
         </button>
         {#if !collapsed[account.id]}
-          {#each app.folders[account.id] ?? [] as f (f.id)}
-            {@const Icon = ICONS[f.role]}
-            <button
-              title={mini ? tip(f.name, showUnread(f.role) ? f.unread : 0) : undefined}
-              class="item"
-              class:active={isActiveFolder(f) || (app.accounts.length === 1 && f.role !== 'other' && isActiveUnified(f.role))}
-              onclick={() => app.setView({ kind: 'folder', accountId: account.id, folderId: f.id })}
-            >
-              <Icon size={17} />
-              <span class="name" title={f.name}>{f.name}</span>
-              {#if showUnread(f.role) && f.unread > 0}<span class="count">{f.unread}</span>{/if}
-              {#if f.role === 'drafts' && f.total > 0}<span class="count soft">{f.total}</span>{/if}
+          {@const all = app.folders[account.id] ?? []}
+          {@const visible = all.filter((f) => !app.isHidden(f) || isActive(f))}
+          {@const hidden = all.filter((f) => app.isHidden(f) && !isActive(f))}
+          {@const hiddenUnread = hidden.reduce((n, f) => n + (showUnread(f.role) ? f.unread : 0), 0)}
+          {#each visible as f (f.id)}{@render folderRow(f, false)}{/each}
+          {#if !mini && hidden.length > 0}
+            <button class="item more" onclick={() => (showHidden[account.id] = !showHidden[account.id])}>
+              {#if showHidden[account.id]}<ChevronDown size={17} />{:else}<ChevronRight size={17} />{/if}
+              <span class="name">{showHidden[account.id] ? 'Menos carpetas' : `Más carpetas (${hidden.length})`}</span>
+              {#if !showHidden[account.id] && hiddenUnread > 0}<span class="count">{hiddenUnread}</span>{/if}
             </button>
-          {/each}
+            {#if showHidden[account.id]}
+              {#each hidden as f (f.id)}{@render folderRow(f, true)}{/each}
+            {/if}
+          {/if}
           {#if (app.folders[account.id] ?? []).length === 0}
             <div class="empty faint">Sincronizando…</div>
           {/if}
@@ -101,6 +101,32 @@
       </div>
     {/each}
   </nav>
+
+  {#snippet folderRow(f: Folder, isHiddenRow: boolean)}
+    {@const Icon = ICONS[f.role]}
+    <div class="row" class:hidden-folder={isHiddenRow}>
+      <button
+        title={mini ? tip(f.name, showUnread(f.role) ? f.unread : 0) : undefined}
+        class="item"
+        class:active={isActive(f)}
+        onclick={() => app.setView({ kind: 'folder', accountId: f.accountId, folderId: f.id })}
+      >
+        <Icon size={17} />
+        <span class="name" title={f.name}>{f.name}</span>
+        {#if showUnread(f.role) && f.unread > 0}<span class="count">{f.unread}</span>{/if}
+        {#if f.role === 'drafts' && f.total > 0}<span class="count soft">{f.total}</span>{/if}
+      </button>
+      {#if !mini && f.role !== 'inbox'}
+        <button
+          class="icon-btn eye"
+          title={app.isHidden(f) ? 'Mostrar en la barra lateral' : 'Ocultar de la barra lateral'}
+          onclick={() => app.toggleHidden(f)}
+        >
+          {#if app.isHidden(f)}<Eye size={14} />{:else}<EyeOff size={14} />{/if}
+        </button>
+      {/if}
+    </div>
+  {/snippet}
 
   <div class="footer">
     {#if mini}
@@ -152,6 +178,15 @@
   }
   .item:hover { background: var(--surface-3); color: var(--text); }
   .item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .row { position: relative; }
+  .row .eye {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px;
+    color: var(--text-3); background: var(--surface-3); opacity: 0; pointer-events: none;
+  }
+  .row:hover .eye { opacity: 1; pointer-events: auto; }
+  .row .eye:hover { color: var(--text); }
+  .hidden-folder .item:not(.active) { opacity: 0.6; }
+  .more { color: var(--text-3); font-size: 13px; }
   .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .count { font-size: 12px; font-weight: 600; color: var(--accent); }
   .count.soft { color: var(--text-3); font-weight: 500; }
