@@ -3,14 +3,20 @@
   import { api, type MessageBody } from '../api';
   import ClassicView from './ClassicView.svelte';
   import ChatView from './ChatView.svelte';
+  import TabBar from './TabBar.svelte';
   import {
     Reply, ReplyAll, Forward, Archive, Trash2, ShieldAlert, Inbox, Mail, Star, MessagesSquare, Rows3, ImageOff,
+    AppWindow, Sun, Moon,
   } from '@lucide/svelte';
 
   let messages = $state<MessageBody[]>([]);
   let loading = $state(false);
   let forceRemote = $state(false);
   let loadedKey = '';
+  /** Light/dark override for the whole conversation (dark UI only); reset per thread. */
+  let themeMode = $state<'auto' | 'light' | 'dark'>('auto');
+  /** Whether the open emails render dark; null when none is on screen. */
+  let anyDark = $state<boolean | null>(null);
 
   const sel = $derived(app.selected);
   const account = $derived(sel ? app.account(sel.accountId) : undefined);
@@ -26,8 +32,15 @@
     try {
       const result = await api.getThread(sel.accountId, sel.threadId, forceRemote);
       if (`${app.selected?.accountId}|${app.selected?.threadId}` !== key) return; // selection changed meanwhile
+      if (result.length === 0 && app.isTabOpen(sel)) {
+        // Gone (deleted or moved elsewhere from another client): nothing left to keep open.
+        app.closeTab(sel);
+        app.selected = null;
+        return;
+      }
       messages = result;
       loadedKey = key;
+      if (result.length) app.renameTab(sel, result[0].summary.subject || '(sin asunto)');
       const unread = result.filter((m) => !m.summary.seen).map((m) => m.summary.id);
       if (unread.length) {
         result.forEach((m) => (m.summary.seen = true));
@@ -44,6 +57,8 @@
     const key = sel ? `${sel.accountId}|${sel.threadId}` : '';
     if (key !== loadedKey) {
       forceRemote = false;
+      themeMode = 'auto';
+      anyDark = null;
       if (!key) {
         messages = [];
         loadedKey = '';
@@ -88,6 +103,16 @@
     last.summary.flagged = next;
     await api.setFlagged([last.summary.id], next).catch((e) => app.error(e));
   }
+  export function toggleTab() {
+    if (sel) app.toggleTab(sel, messages[0]?.summary.subject || '(sin asunto)');
+  }
+  export function togglePin() {
+    if (sel) app.toggleThreadPinned(sel);
+  }
+  function toggleTheme() {
+    themeMode = anyDark ? 'light' : 'dark';
+  }
+
   export async function markUnread() {
     if (!sel) return;
     await app.setThreadSeen(sel, false);
@@ -96,73 +121,86 @@
 </script>
 
 <section class="pane">
-  {#if !sel}
-    <div class="placeholder">
-      <img src="/icon.svg" alt="" width="72" height="72" />
-      <p>Selecciona una conversación</p>
-      <p class="faint hint"><kbd>C</kbd> redactar · <kbd>/</kbd> buscar · <kbd>J</kbd>/<kbd>K</kbd> navegar · <kbd>V</kbd> vista chat · <kbd>B</kbd> barra lateral</p>
-    </div>
-  {:else}
-    <header class="toolbar">
-      <div class="group">
-        <button class="icon-btn" title="Responder (R)" onclick={() => reply(false)} disabled={!last}><Reply size={18} /></button>
-        <button class="icon-btn" title="Responder a todos (A)" onclick={() => reply(true)} disabled={!last}><ReplyAll size={18} /></button>
-        <button class="icon-btn" title="Reenviar (F)" onclick={forward} disabled={!last}><Forward size={18} /></button>
+  <div class="main">
+    {#if !sel}
+      <div class="placeholder">
+        <img src="/icon.svg" alt="" width="72" height="72" />
+        <p>Selecciona una conversación</p>
+        <p class="faint hint"><kbd>C</kbd> redactar · <kbd>/</kbd> buscar · <kbd>J</kbd>/<kbd>K</kbd> navegar · <kbd>V</kbd> vista chat · <kbd>B</kbd> barra lateral · <kbd>P</kbd> fijar · <kbd>T</kbd> pestaña</p>
       </div>
-      <div class="group">
-        {#if role === 'inbox'}
-          <button class="icon-btn" title="Archivar (E)" onclick={() => move('archive')}><Archive size={18} /></button>
-        {:else if role !== 'sent' && role !== 'drafts'}
-          <button class="icon-btn" title="Mover a Recibidos" onclick={() => move('inbox')}><Inbox size={18} /></button>
+    {:else}
+      <header class="toolbar">
+        <div class="group">
+          <button class="icon-btn" title="Responder (R)" onclick={() => reply(false)} disabled={!last}><Reply size={18} /></button>
+          <button class="icon-btn" title="Responder a todos (A)" onclick={() => reply(true)} disabled={!last}><ReplyAll size={18} /></button>
+          <button class="icon-btn" title="Reenviar (F)" onclick={forward} disabled={!last}><Forward size={18} /></button>
+        </div>
+        <div class="group">
+          {#if role === 'inbox'}
+            <button class="icon-btn" title="Archivar (E)" onclick={() => move('archive')}><Archive size={18} /></button>
+          {:else if role !== 'sent' && role !== 'drafts'}
+            <button class="icon-btn" title="Mover a Recibidos" onclick={() => move('inbox')}><Inbox size={18} /></button>
+          {/if}
+          {#if role !== 'junk'}
+            <button class="icon-btn" title="No deseado" onclick={() => move('junk')}><ShieldAlert size={18} /></button>
+          {/if}
+          <button class="icon-btn" title={role === 'trash' ? 'Eliminar definitivamente' : 'Eliminar (#)'} onclick={() => move('trash')}><Trash2 size={18} /></button>
+        </div>
+        <div class="group">
+          <button class="icon-btn" title="Marcar como no leído (U)" onclick={markUnread}><Mail size={18} /></button>
+          <button class="icon-btn" class:active={flagged} title="Destacar (S)" onclick={toggleFlag}>
+            <Star size={18} fill={flagged ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+        {#if role === 'drafts' && last}
+          <button class="btn primary" onclick={() => app.compose({ mode: 'draft', accountId: last.summary.accountId, source: last })}>Editar borrador</button>
         {/if}
-        {#if role !== 'junk'}
-          <button class="icon-btn" title="No deseado" onclick={() => move('junk')}><ShieldAlert size={18} /></button>
+        <div class="spacer"></div>
+        {#if app.isDark && anyDark !== null}
+          <button class="icon-btn" title={anyDark ? 'Ver con fondo claro' : 'Ver en modo oscuro'} onclick={toggleTheme}>
+            {#if anyDark}<Sun size={18} />{:else}<Moon size={18} />{/if}
+          </button>
         {/if}
-        <button class="icon-btn" title={role === 'trash' ? 'Eliminar definitivamente' : 'Eliminar (#)'} onclick={() => move('trash')}><Trash2 size={18} /></button>
-      </div>
-      <div class="group">
-        <button class="icon-btn" title="Marcar como no leído (U)" onclick={markUnread}><Mail size={18} /></button>
-        <button class="icon-btn" class:active={flagged} title="Destacar (S)" onclick={toggleFlag}>
-          <Star size={18} fill={flagged ? 'currentColor' : 'none'} />
+        <button class="icon-btn" class:active={app.isTabOpen(sel)} onclick={toggleTab}
+          title={app.isTabOpen(sel) ? 'Cerrar pestaña (T)' : 'Mantener abierto en una pestaña (T)'}>
+          <AppWindow size={18} />
         </button>
-      </div>
-      {#if role === 'drafts' && last}
-        <button class="btn primary" onclick={() => app.compose({ mode: 'draft', accountId: last.summary.accountId, source: last })}>Editar borrador</button>
+        <div class="view-toggle" role="group" aria-label="Modo de vista">
+          <button class:on={!app.chatView} onclick={() => app.chatView && app.toggleChatView()} title="Vista clásica">
+            <Rows3 size={15} /> Clásica
+          </button>
+          <button class:on={app.chatView} onclick={() => !app.chatView && app.toggleChatView()} title="Vista de mensajería">
+            <MessagesSquare size={15} /> Chat
+          </button>
+        </div>
+      </header>
+
+      {#if anyBlocked && !forceRemote}
+        <div class="privacy">
+          <ImageOff size={16} />
+          <span>Se bloquearon imágenes remotas para evitar que el remitente sepa cuándo abres el correo.</span>
+          <button class="btn ghost" onclick={showImages}>Mostrar imágenes</button>
+          {#if last?.summary.from}<button class="btn ghost" onclick={trustSender}>Siempre de este remitente</button>{/if}
+        </div>
       {/if}
-      <div class="spacer"></div>
-      <div class="view-toggle" role="group" aria-label="Modo de vista">
-        <button class:on={!app.chatView} onclick={() => app.chatView && app.toggleChatView()} title="Vista clásica">
-          <Rows3 size={15} /> Clásica
-        </button>
-        <button class:on={app.chatView} onclick={() => !app.chatView && app.toggleChatView()} title="Vista de mensajería">
-          <MessagesSquare size={15} /> Chat
-        </button>
-      </div>
-    </header>
 
-    {#if anyBlocked && !forceRemote}
-      <div class="privacy">
-        <ImageOff size={16} />
-        <span>Se bloquearon imágenes remotas para evitar que el remitente sepa cuándo abres el correo.</span>
-        <button class="btn ghost" onclick={showImages}>Mostrar imágenes</button>
-        {#if last?.summary.from}<button class="btn ghost" onclick={trustSender}>Siempre de este remitente</button>{/if}
-      </div>
-    {/if}
-
-    {#if loading && messages.length === 0}
-      <div class="placeholder"><p class="faint">Cargando conversación…</p></div>
-    {:else if account && messages.length}
-      {#if app.chatView}
-        <ChatView {messages} {account} allowRemote={forceRemote} onSent={() => load()} />
-      {:else}
-        <ClassicView {messages} allowRemote={forceRemote} />
+      {#if loading && messages.length === 0}
+        <div class="placeholder"><p class="faint">Cargando conversación…</p></div>
+      {:else if account && messages.length}
+        {#if app.chatView}
+          <ChatView {messages} {account} allowRemote={forceRemote} onSent={() => load()} {themeMode} bind:anyDark />
+        {:else}
+          <ClassicView {messages} allowRemote={forceRemote} {themeMode} bind:anyDark />
+        {/if}
       {/if}
     {/if}
-  {/if}
+  </div>
+  <TabBar />
 </section>
 
 <style>
   .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); min-height: 0; }
+  .main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .placeholder { flex: 1; display: grid; place-content: center; justify-items: center; gap: 4px; color: var(--text-2); opacity: 0.9; }
   .placeholder img { opacity: 0.35; filter: grayscale(0.4); margin-bottom: 8px; }
   .hint { font-size: 12.5px; }

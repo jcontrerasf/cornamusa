@@ -9,18 +9,26 @@
   import Avatar from './Avatar.svelte';
   import MessageFrame from './MessageFrame.svelte';
   import AttachmentChips from './AttachmentChips.svelte';
-  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp, Sun, Moon } from '@lucide/svelte';
+  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp } from '@lucide/svelte';
 
-  let { messages, account, allowRemote, onSent }: {
+  let { messages, account, allowRemote, onSent, themeMode = 'auto', anyDark = $bindable(null) }: {
     messages: MessageBody[]; account: Account; allowRemote: boolean; onSent: () => void;
+    /** Light/dark override for the full emails, chosen in the reading pane's toolbar. */
+    themeMode?: 'auto' | 'light' | 'dark';
+    /** Whether any full email on screen renders dark; null when none is open. */
+    anyDark?: boolean | null;
   } = $props();
 
   let scroller: HTMLElement | undefined = $state();
   let draft = $state('');
   let sending = $state(false);
   let showOriginal = $state<Record<number, boolean>>({});
-  let themeMode = $state<Record<number, 'light' | 'dark'>>({});
   let rendersDark = $state<Record<number, boolean>>({});
+
+  $effect(() => {
+    const open = messages.filter((m) => showOriginal[m.summary.id]).map((m) => m.summary.id);
+    anyDark = open.length ? open.some((id) => rendersDark[id]) : null;
+  });
 
   const subject = $derived(messages[0]?.summary.subject || '(sin asunto)');
   const last = $derived(messages[messages.length - 1]);
@@ -127,7 +135,7 @@
           {/if}
           <div class="bubble" title={formatFullDate(s.date)}>
             {#if showOriginal[s.id]}
-              <div class="original"><MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode[s.id] ?? 'auto'} bind:dark={rendersDark[s.id]} /></div>
+              <div class="original"><MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode} bind:dark={rendersDark[s.id]} /></div>
             {:else}
               {#if m.chatHtml}
                 <!-- chatHtml comes from the backend's strict sanitizer (no style/class/id/scripts). -->
@@ -142,15 +150,6 @@
               {#if hasMore(m)}
                 <button class="more" onclick={() => (showOriginal[s.id] = !showOriginal[s.id])}>
                   {#if showOriginal[s.id]}<ChevronUp size={13} /> Vista chat{:else}<ChevronDown size={13} /> Ver correo completo{/if}
-                </button>
-              {/if}
-              {#if showOriginal[s.id] && app.isDark}
-                <button
-                  class="more"
-                  title={rendersDark[s.id] ? 'Ver con fondo claro' : 'Ver en modo oscuro'}
-                  onclick={() => (themeMode[s.id] = rendersDark[s.id] ? 'light' : 'dark')}
-                >
-                  {#if rendersDark[s.id]}<Sun size={13} />{:else}<Moon size={13} />{/if}
                 </button>
               {/if}
               <span class="time">{formatTime(s.date)}</span>

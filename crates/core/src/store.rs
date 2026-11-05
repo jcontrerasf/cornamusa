@@ -377,6 +377,18 @@ impl Store {
                     .bind(old)
                     .execute(&self.pool)
                     .await?;
+                // A pinned conversation stays pinned under its new id.
+                sqlx::query("UPDATE OR IGNORE pinned_threads SET thread_id = ? WHERE account_id = ? AND thread_id = ?")
+                    .bind(&thread)
+                    .bind(account_id)
+                    .bind(old)
+                    .execute(&self.pool)
+                    .await?;
+                sqlx::query("DELETE FROM pinned_threads WHERE account_id = ? AND thread_id = ?")
+                    .bind(account_id)
+                    .bind(old)
+                    .execute(&self.pool)
+                    .await?;
             }
         }
         Ok(thread)
@@ -557,8 +569,10 @@ impl Store {
         }
         let placeholders = vec!["?"; folder_ids.len()].join(",");
         let sql = format!(
-            "SELECT account_id, thread_id, MAX(date) AS last_date FROM messages WHERE folder_id IN ({placeholders})
-             GROUP BY account_id, thread_id ORDER BY last_date DESC LIMIT ? OFFSET ?"
+            "SELECT m.account_id, m.thread_id, MAX(m.date) AS last_date, (p.thread_id IS NOT NULL) AS pinned
+             FROM messages m LEFT JOIN pinned_threads p ON p.account_id = m.account_id AND p.thread_id = m.thread_id
+             WHERE m.folder_id IN ({placeholders})
+             GROUP BY m.account_id, m.thread_id ORDER BY pinned DESC, last_date DESC LIMIT ? OFFSET ?"
         );
         let mut q = sqlx::query(&sql);
         for id in folder_ids {
@@ -570,6 +584,7 @@ impl Store {
         for k in &keys {
             let account_id: String = k.get("account_id");
             let thread_id: String = k.get("thread_id");
+            let pinned: bool = k.get("pinned");
             let msgs = self.thread_summaries(&account_id, &thread_id).await?;
             let in_folder: Vec<&MessageSummary> = msgs.iter().filter(|m| folder_ids.contains(&m.folder_id)).collect();
             let Some(latest) = in_folder.iter().max_by_key(|m| m.date) else { continue };
@@ -595,6 +610,7 @@ impl Store {
                 preview: latest.preview.clone(),
                 latest_id: latest.id,
                 account_id,
+                pinned,
             });
         }
         Ok(out)
@@ -642,6 +658,24 @@ impl Store {
         let mut v: Vec<(usize, MessageSummary, u8)> = by_key.into_values().collect();
         v.sort_by_key(|(i, s, _)| (s.date, *i));
         Ok(v.into_iter().map(|(_, s, _)| s).collect())
+    }
+
+    pub async fn set_thread_pinned(&self, account_id: &str, thread_id: &str, pinned: bool) -> Result<()> {
+        if pinned {
+            sqlx::query("INSERT OR IGNORE INTO pinned_threads (account_id, thread_id, pinned_at) VALUES (?, ?, ?)")
+                .bind(account_id)
+                .bind(thread_id)
+                .bind(chrono::Utc::now().timestamp())
+                .execute(&self.pool)
+                .await?;
+        } else {
+            sqlx::query("DELETE FROM pinned_threads WHERE account_id = ? AND thread_id = ?")
+                .bind(account_id)
+                .bind(thread_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
     }
 
     /// All row ids (every folder copy) of the messages in a thread.
@@ -887,6 +921,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pinned_threads_first_and_survive_merge() {
+        let (s, inbox, _) = setup().await;
+        let f = Flags::default();
+        // A reply whose parent hasn't arrived yet starts a thread keyed by the parent's id.
+        s.upsert_header("acc", inbox, meta(1, f), &hdr("b", Some("a"), &[], "Ana", 100)).await.unwrap();
+        s.upsert_header("acc", inbox, meta(2, f), &hdr("z", None, &[], "Luis", 500)).await.unwrap();
+        let old = s.threads(&[inbox], 50, 0).await.unwrap().into_iter().find(|t| t.message_count == 1 && t.last_date == 100).unwrap();
+        s.set_thread_pinned("acc", &old.thread_id, true).await.unwrap();
+
+        let threads = s.threads(&[inbox], 50, 0).await.unwrap();
+        assert!(threads[0].pinned && threads[0].last_date == 100);
+        assert!(!threads[1].pinned);
+
+        // The original arrives with a grandparent reference: the thread gets merged/renamed.
+        s.upsert_header("acc", inbox, meta(3, f), &hdr("a", Some("root"), &["root"], "Ana", 50)).await.unwrap();
+        let threads = s.threads(&[inbox], 50, 0).await.unwrap();
+        assert!(threads[0].pinned);
+        assert_eq!(threads[0].message_count, 2);
+
+        s.set_thread_pinned("acc", &threads[0].thread_id, false).await.unwrap();
+        assert!(!s.threads(&[inbox], 50, 0).await.unwrap().iter().any(|t| t.pinned));
+    }
+
+    #[tokio::test]
     async fn duplicates_collapse_and_flags_update() {
         let (s, inbox, _) = setup().await;
         let all = s.upsert_folder("acc", "[Gmail]/All Mail", "Todos", FolderRole::All).await.unwrap();
@@ -964,6 +1022,7 @@ mod tests {
             .unwrap();
         let old = s.settings().await.unwrap();
         assert!(!old.close_to_tray && old.chat_view && old.theme == "dark" && !old.sidebar_collapsed && old.new_mail_sound == "corneta-suave" && old.hidden_folders.is_empty());
+        assert!(old.custom_sound_name.is_none() && old.open_tabs.is_empty());
 
         s.delete_account("acc").await.unwrap();
         assert!(s.accounts().await.unwrap().is_empty());

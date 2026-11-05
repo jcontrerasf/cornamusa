@@ -6,14 +6,24 @@
   import Avatar from './Avatar.svelte';
   import MessageFrame from './MessageFrame.svelte';
   import AttachmentChips from './AttachmentChips.svelte';
-  import { Reply, Sun, Moon } from '@lucide/svelte';
+  import { Reply } from '@lucide/svelte';
 
-  let { messages, allowRemote }: { messages: MessageBody[]; allowRemote: boolean } = $props();
+  let { messages, allowRemote, themeMode = 'auto', anyDark = $bindable(null) }: {
+    messages: MessageBody[];
+    allowRemote: boolean;
+    /** Light/dark override for every message, chosen in the reading pane's toolbar. */
+    themeMode?: 'auto' | 'light' | 'dark';
+    /** Whether any expanded message renders dark; null when none is expanded. */
+    anyDark?: boolean | null;
+  } = $props();
 
   let expanded = $state<Record<number, boolean>>({});
-  // Momentary per-message override of the automatic light/dark rendering (not persisted).
-  let themeMode = $state<Record<number, 'light' | 'dark'>>({});
   let rendersDark = $state<Record<number, boolean>>({});
+
+  $effect(() => {
+    const open = messages.filter((m) => expanded[m.summary.id]).map((m) => m.summary.id);
+    anyDark = open.length ? open.some((id) => rendersDark[id]) : null;
+  });
 
   $effect(() => {
     // Expand unread messages and the latest one by default.
@@ -54,19 +64,10 @@
       </button>
       {#if open}
         <div class="content">
-          <MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode[s.id] ?? 'auto'} bind:dark={rendersDark[s.id]} />
+          <MessageFrame html={m.html} text={m.text} {allowRemote} mode={themeMode} bind:dark={rendersDark[s.id]} />
           <AttachmentChips message={m} />
           <div class="actions">
             <button class="btn" onclick={() => app.compose({ mode: 'reply', accountId: s.accountId, source: m })}><Reply size={15} /> Responder</button>
-            {#if app.isDark}
-              <button
-                class="icon-btn theme"
-                title={rendersDark[s.id] ? 'Ver con fondo claro' : 'Ver en modo oscuro'}
-                onclick={() => (themeMode[s.id] = rendersDark[s.id] ? 'light' : 'dark')}
-              >
-                {#if rendersDark[s.id]}<Sun size={16} />{:else}<Moon size={16} />{/if}
-              </button>
-            {/if}
           </div>
         </div>
       {/if}
@@ -87,5 +88,4 @@
   .date { color: var(--text-3); font-size: 12px; flex-shrink: 0; }
   .content { padding: 4px 16px 16px; }
   .actions { margin-top: 14px; display: flex; gap: 8px; align-items: center; }
-  .theme { margin-left: auto; }
 </style>

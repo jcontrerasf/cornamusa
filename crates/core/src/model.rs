@@ -235,6 +235,8 @@ pub struct Thread {
     /// Latest message, used to open the thread.
     pub latest_id: i64,
     pub account_id: String,
+    /// Pinned by the user: listed above the rest.
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,13 +297,29 @@ pub struct Settings {
     #[serde(default)]
     pub sidebar_collapsed: bool,
     /// Sound for new mail: one of the bundled sounds ("corneta-suave", "corneta-cartero",
-    /// "gaita-breve", played by the UI), "system" (the notification's own sound) or "none".
+    /// "gaita-breve", played by the UI), "custom" (a file chosen by the user, also played by
+    /// the UI), "system" (the notification's own sound) or "none".
     #[serde(default = "default_sound")]
     pub new_mail_sound: String,
     /// Folders hidden from the sidebar, as "{account_id}:{imap path}" (the path survives a
     /// cache rebuild, the folder id doesn't).
     #[serde(default)]
     pub hidden_folders: Vec<String>,
+    /// Original file name of the custom new-mail sound (`new_mail_sound == "custom"`); the
+    /// file itself is copied into the app's data folder.
+    #[serde(default)]
+    pub custom_sound_name: Option<String>,
+    /// Conversations kept open as tabs under the reading pane, in tab order.
+    #[serde(default)]
+    pub open_tabs: Vec<OpenTab>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTab {
+    pub account_id: String,
+    pub thread_id: String,
+    pub subject: String,
 }
 
 fn default_sound() -> String {
@@ -321,6 +339,8 @@ impl Default for Settings {
             sidebar_collapsed: false,
             new_mail_sound: default_sound(),
             hidden_folders: Vec::new(),
+            custom_sound_name: None,
+            open_tabs: Vec::new(),
         }
     }
 }

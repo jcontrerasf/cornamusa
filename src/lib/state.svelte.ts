@@ -1,4 +1,4 @@
-import { api, type AttachmentInfo, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget } from './api';
+import { api, type AttachmentInfo, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget, type OpenTab } from './api';
 
 export type View =
   | { kind: 'unified'; role: FolderRole }
@@ -282,10 +282,61 @@ class AppState {
   }
 
   /** Rows of a thread that belong to the current view (so archiving from the inbox doesn't
-   * touch the user's own replies in Sent). */
+   * touch the user's own replies in Sent). A thread opened from a tab may not be in the
+   * current view at all: then every copy is used. */
   async rowsOf(t: { accountId: string; threadId: string }): Promise<number[]> {
-    const folderIds = this.view.kind === 'search' ? [] : this.viewFolderIds;
-    return api.threadRows(t.accountId, t.threadId, folderIds);
+    const inView = this.view.kind !== 'search' && this.threads.some((x) => sameThread(x, t));
+    return api.threadRows(t.accountId, t.threadId, inView ? this.viewFolderIds : []);
+  }
+
+  // ---------- pinned conversations ----------
+
+  async toggleThreadPinned(t: { accountId: string; threadId: string }) {
+    const row = this.threads.find((x) => sameThread(x, t));
+    const pinned = !(row?.pinned ?? false);
+    if (row) {
+      // Optimistic: move it between the two sections right away.
+      row.pinned = pinned;
+      this.threads = [...this.threads.filter((x) => x.pinned), ...this.threads.filter((x) => !x.pinned)];
+    }
+    try {
+      await api.setThreadPinned(t.accountId, t.threadId, pinned);
+      await this.reloadList();
+    } catch (e) {
+      this.error(e);
+      await this.reloadList();
+    }
+  }
+
+  // ---------- open tabs ----------
+
+  get openTabs(): OpenTab[] {
+    return this.settings?.openTabs ?? [];
+  }
+
+  isTabOpen(t: { accountId: string; threadId: string }): boolean {
+    return this.openTabs.some((x) => sameThread(x, t));
+  }
+
+  async toggleTab(t: { accountId: string; threadId: string }, subject: string) {
+    if (!this.settings) return;
+    if (this.isTabOpen(t)) return this.closeTab(t);
+    this.settings.openTabs = [...this.openTabs, { accountId: t.accountId, threadId: t.threadId, subject }];
+    await this.saveSettings();
+  }
+
+  async closeTab(t: { accountId: string; threadId: string }) {
+    if (!this.settings || !this.isTabOpen(t)) return;
+    this.settings.openTabs = this.openTabs.filter((x) => !sameThread(x, t));
+    await this.saveSettings();
+  }
+
+  /** Keeps a tab's label in sync with the conversation (e.g. a reply changed the subject). */
+  async renameTab(t: { accountId: string; threadId: string }, subject: string) {
+    const tab = this.openTabs.find((x) => sameThread(x, t));
+    if (!tab || tab.subject === subject) return;
+    tab.subject = subject;
+    await this.saveSettings();
   }
 
   async moveThread(t: { accountId: string; threadId: string }, target: MoveTarget) {
@@ -297,6 +348,8 @@ class AppState {
       // Optimistic: drop it from the list right away.
       this.threads = this.threads.filter((x) => !(x.threadId === t.threadId && x.accountId === t.accountId));
       if (this.selected?.threadId === t.threadId) this.selected = null;
+      // Archived/deleted: its tab has nothing left to show.
+      if (target !== 'inbox') this.closeTab(t);
       await api.moveMessages(ids, target);
       this.toast(labels[target], 'success');
     } catch (e) {
@@ -336,6 +389,10 @@ class AppState {
       this.signatures.find((s) => s.accountId === null && s.isDefault)
     );
   }
+}
+
+export function sameThread(a: { accountId: string; threadId: string }, b: { accountId: string; threadId: string }): boolean {
+  return a.accountId === b.accountId && a.threadId === b.threadId;
 }
 
 export const UNIFIED_LABELS: Partial<Record<FolderRole, string>> = {

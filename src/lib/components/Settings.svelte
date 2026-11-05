@@ -2,8 +2,8 @@
   import { app } from '../state.svelte';
   import { api, type Account } from '../api';
   import SignatureEditor from './SignatureEditor.svelte';
-  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play } from '@lucide/svelte';
-  import { SOUNDS, isBundledSound, playSound } from '../sounds';
+  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play, FolderOpen } from '@lucide/svelte';
+  import { SOUNDS, CUSTOM_SOUND, isBundledSound, playSound, invalidateCustomSound } from '../sounds';
   import { FOLDER_ICONS } from '../folders';
 
   const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#22c55e', '#0ea5e9'];
@@ -23,6 +23,21 @@
     app.settings.newMailSound = id;
     playSound(id);
     await app.saveSettings();
+  }
+
+  async function pickCustomSound() {
+    if (!app.settings) return;
+    try {
+      const name = await api.pickCustomSound();
+      if (!name) return;
+      invalidateCustomSound();
+      app.settings.customSoundName = name;
+      app.settings.newMailSound = CUSTOM_SOUND;
+      await app.saveSettings();
+      if (!(await playSound(CUSTOM_SOUND))) app.toast('No se pudo reproducir ese archivo; prueba con otro formato (WAV, MP3 u OGG)', 'error');
+    } catch (e) {
+      app.error(e);
+    }
   }
 
   async function setTheme(theme: 'system' | 'light' | 'dark') {
@@ -96,6 +111,18 @@
                   {/if}
                 </div>
               {/each}
+              <div class="sound-row">
+                <label title={s.customSoundName ?? undefined}>
+                  <input type="radio" name="sound" value={CUSTOM_SOUND} checked={s.newMailSound === CUSTOM_SOUND} disabled={!s.notifications || !s.customSoundName} onchange={() => setSound(CUSTOM_SOUND)} />
+                  <span class="custom-name">{s.customSoundName ? `Propio: ${s.customSoundName}` : 'Sonido propio'}</span>
+                </label>
+                <span class="custom-actions">
+                  {#if s.customSoundName}
+                    <button class="icon-btn" title="Probar" onclick={() => playSound(CUSTOM_SOUND)}><Play size={14} /></button>
+                  {/if}
+                  <button class="icon-btn" title="Elegir archivo de audio…" disabled={!s.notifications} onclick={pickCustomSound}><FolderOpen size={14} /></button>
+                </span>
+              </div>
             </div>
           </div>
           <div class="opt">
@@ -182,6 +209,9 @@
   .sound-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
   .sound-row label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; }
   .sound-row .icon-btn { padding: 4px; }
+  .sound-row label { min-width: 0; }
+  .custom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  .custom-actions { display: flex; gap: 2px; flex-shrink: 0; }
   .seg { display: flex; background: var(--surface-2); padding: 3px; border-radius: 9px; }
   .seg button { border: none; background: none; padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--text-2); }
   .seg button.on { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: var(--shadow); }

@@ -105,6 +105,8 @@
       Delete: () => pane?.move('trash'),
       s: () => pane?.toggleFlag(),
       u: () => pane?.markUnread(),
+      p: () => pane?.togglePin(),
+      t: () => pane?.toggleTab(),
       v: () => app.toggleChatView(),
       b: () => app.toggleSidebar(),
       Escape: () => (app.selected = null),

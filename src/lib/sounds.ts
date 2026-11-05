@@ -1,4 +1,6 @@
-// New-mail sounds bundled with the app (synthesized by assets/sounds/generate.py).
+// New-mail sounds bundled with the app (synthesized by assets/sounds/generate.py), plus the
+// user's own file ('custom'), copied into the app's data folder by the backend.
+import { api } from './api';
 
 export const SOUNDS = [
   { id: 'corneta-suave', label: 'Corneta suave' },
@@ -8,8 +10,20 @@ export const SOUNDS = [
 
 const VOLUME = 0.8;
 
+export const CUSTOM_SOUND = 'custom';
+
 export function isBundledSound(id: string): boolean {
   return SOUNDS.some((s) => s.id === id);
+}
+
+/** Sounds the UI plays itself (as opposed to 'system' / 'none'). */
+export function isPlayableSound(id: string): boolean {
+  return id === CUSTOM_SOUND || isBundledSound(id);
+}
+
+/** Drops the cached custom sound after the user picks another file. */
+export function invalidateCustomSound() {
+  buffers.delete(CUSTOM_SOUND);
 }
 
 // Played through Web Audio rather than <audio>: on Linux, WebKitGTK's media element can't load
@@ -28,12 +42,14 @@ function context(): AudioContext | null {
 function load(c: AudioContext, id: string): Promise<AudioBuffer> {
   let p = buffers.get(id);
   if (!p) {
-    p = fetch(`/sounds/${id}.wav`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.arrayBuffer();
-      })
-      .then((data) => c.decodeAudioData(data));
+    const bytes =
+      id === CUSTOM_SOUND
+        ? api.readCustomSound()
+        : fetch(`/sounds/${id}.wav`).then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.arrayBuffer();
+          });
+    p = bytes.then((data) => c.decodeAudioData(data));
     p.catch(() => buffers.delete(id)); // retry next time
     buffers.set(id, p);
   }
@@ -51,9 +67,10 @@ if (typeof document !== 'undefined') {
   document.addEventListener('keydown', unlock, { once: true, capture: true });
 }
 
-/** Plays a bundled sound; silently ignores unknown ids and playback errors. */
-export async function playSound(id: string) {
-  if (!isBundledSound(id)) return;
+/** Plays a bundled or the custom sound; silently ignores unknown ids and playback errors.
+ *  Resolves to false if the sound couldn't be played. */
+export async function playSound(id: string): Promise<boolean> {
+  if (!isPlayableSound(id)) return false;
   try {
     const c = context();
     if (!c) throw new Error('Web Audio no disponible');
@@ -65,10 +82,13 @@ export async function playSound(id: string) {
     src.buffer = buffer;
     src.connect(gain).connect(c.destination);
     src.start();
+    return true;
   } catch (e) {
     console.warn('No se pudo reproducir el sonido', id, e);
+    // The <audio> fallback needs a URL, which only the bundled sounds have.
+    if (id === CUSTOM_SOUND) return false;
     const audio = new Audio(`/sounds/${id}.wav`);
     audio.volume = VOLUME;
-    audio.play().catch(() => {});
+    return audio.play().then(() => true, () => false);
   }
 }

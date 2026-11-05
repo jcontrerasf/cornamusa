@@ -3,7 +3,7 @@
   import type { Thread, MessageSummary } from '../api';
   import { displayName, firstName, formatListDate } from '../util';
   import Avatar from './Avatar.svelte';
-  import { Search, RefreshCw, Paperclip, Star, Archive, Trash2, MailOpen, Mail, MessagesSquare, X } from '@lucide/svelte';
+  import { Search, RefreshCw, Paperclip, Star, Archive, Trash2, MailOpen, Mail, MessagesSquare, X, Pin, PinOff } from '@lucide/svelte';
 
   let query = $state('');
   let searchEl: HTMLInputElement | undefined = $state();
@@ -47,6 +47,9 @@
 
   const isSelected = (t: { accountId: string; threadId: string }) =>
     app.selected?.threadId === t.threadId && app.selected?.accountId === t.accountId;
+
+  const pinned = $derived(app.threads.filter((t) => t.pinned));
+  const others = $derived(app.threads.filter((t) => !t.pinned));
 
   function onScroll(e: Event) {
     const el = e.currentTarget as HTMLElement;
@@ -95,49 +98,61 @@
         <div class="empty">{app.loadingList ? 'Buscando…' : 'Sin resultados'}</div>
       {/each}
     {:else}
-      {#each app.threads as t (t.accountId + t.threadId)}
-        {@const account = app.account(t.accountId)}
-        <div class="row-wrap">
-          <button class="row" class:unread={t.unreadCount > 0} class:selected={isSelected(t)} onclick={() => app.select(t.accountId, t.threadId)}>
-            {#if app.accounts.length > 1 && account}<span class="acct" style:background={account.color}></span>{/if}
-            <Avatar address={outgoing ? (t.recipients[0] ?? t.participants[0]) : (t.participants.find((p) => !app.isOwnAddress(p.email)) ?? t.participants[0])} />
-            <div class="body">
-              <div class="line1">
-                <span class="from">{senders(t)}</span>
-                {#if t.messageCount > 1}<span class="n">{t.messageCount}</span>{/if}
-                <span class="date">{formatListDate(t.lastDate)}</span>
-              </div>
-              <div class="subject">
-                {#if t.unreadCount > 0}<span class="dot"></span>{/if}
-                {t.subject || '(sin asunto)'}
-              </div>
-              <div class="preview">{t.preview}</div>
-            </div>
-            <div class="marks">
-              {#if t.flagged}<Star size={14} fill="currentColor" class="star" />{/if}
-              {#if t.hasAttachments}<Paperclip size={14} />{/if}
-            </div>
-          </button>
-          <div class="hover-actions">
-            <button class="icon-btn" title="Archivar (E)" onclick={() => app.moveThread(t, 'archive')}><Archive size={15} /></button>
-            <button class="icon-btn" title="Eliminar (#)" onclick={() => app.moveThread(t, 'trash')}><Trash2 size={15} /></button>
-            <button class="icon-btn" title={t.unreadCount ? 'Marcar como leído' : 'Marcar como no leído'}
-              onclick={() => app.setThreadSeen(t, t.unreadCount > 0)}>
-              {#if t.unreadCount}<MailOpen size={15} />{:else}<Mail size={15} />{/if}
-            </button>
-            <button class="icon-btn" title="Destacar (S)" onclick={() => app.setThreadFlagged(t, !t.flagged)}>
-              <Star size={15} fill={t.flagged ? 'currentColor' : 'none'} />
-            </button>
-          </div>
-        </div>
-      {:else}
+      {#if pinned.length}
+        <div class="section"><Pin size={12} /> Fijados</div>
+        {#each pinned as t (t.accountId + t.threadId)}{@render threadRow(t)}{/each}
+        {#if others.length}<div class="section">Otros</div>{/if}
+      {/if}
+      {#each others as t (t.accountId + t.threadId)}{@render threadRow(t)}{/each}
+      {#if app.threads.length === 0}
         <div class="empty">
           {#if app.loadingList}Cargando…{:else if app.accounts.length === 0}Agrega una cuenta para empezar{:else}No hay mensajes aquí 🎉{/if}
         </div>
-      {/each}
+      {/if}
     {/if}
   </div>
 </section>
+
+{#snippet threadRow(t: Thread)}
+  {@const account = app.account(t.accountId)}
+  <div class="row-wrap" class:pinned={t.pinned}>
+    <button class="row" class:unread={t.unreadCount > 0} class:selected={isSelected(t)} onclick={() => app.select(t.accountId, t.threadId)}>
+      {#if app.accounts.length > 1 && account}<span class="acct" style:background={account.color}></span>{/if}
+      <Avatar address={outgoing ? (t.recipients[0] ?? t.participants[0]) : (t.participants.find((p) => !app.isOwnAddress(p.email)) ?? t.participants[0])} />
+      <div class="body">
+        <div class="line1">
+          <span class="from">{senders(t)}</span>
+          {#if t.messageCount > 1}<span class="n">{t.messageCount}</span>{/if}
+          <span class="date">{formatListDate(t.lastDate)}</span>
+        </div>
+        <div class="subject">
+          {#if t.unreadCount > 0}<span class="dot"></span>{/if}
+          {t.subject || '(sin asunto)'}
+        </div>
+        <div class="preview">{t.preview}</div>
+      </div>
+      <div class="marks">
+        {#if t.pinned}<Pin size={13} class="pin" />{/if}
+        {#if t.flagged}<Star size={14} fill="currentColor" class="star" />{/if}
+        {#if t.hasAttachments}<Paperclip size={14} />{/if}
+      </div>
+    </button>
+    <div class="hover-actions">
+      <button class="icon-btn" title={t.pinned ? 'Desfijar (P)' : 'Fijar arriba (P)'} onclick={() => app.toggleThreadPinned(t)}>
+        {#if t.pinned}<PinOff size={15} />{:else}<Pin size={15} />{/if}
+      </button>
+      <button class="icon-btn" title="Archivar (E)" onclick={() => app.moveThread(t, 'archive')}><Archive size={15} /></button>
+      <button class="icon-btn" title="Eliminar (#)" onclick={() => app.moveThread(t, 'trash')}><Trash2 size={15} /></button>
+      <button class="icon-btn" title={t.unreadCount ? 'Marcar como leído' : 'Marcar como no leído'}
+        onclick={() => app.setThreadSeen(t, t.unreadCount > 0)}>
+        {#if t.unreadCount}<MailOpen size={15} />{:else}<Mail size={15} />{/if}
+      </button>
+      <button class="icon-btn" title="Destacar (S)" onclick={() => app.setThreadFlagged(t, !t.flagged)}>
+        <Star size={15} fill={t.flagged ? 'currentColor' : 'none'} />
+      </button>
+    </div>
+  </div>
+{/snippet}
 
 <style>
   .list { width: 380px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--surface); min-height: 0; }
@@ -157,6 +172,15 @@
     text-align: left; border-bottom: 1px solid var(--border); position: relative;
   }
   .row:hover { background: var(--surface-2); }
+  .pinned .row { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+  .pinned .row:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  .pinned .row.selected { background: var(--accent-soft); }
+  .marks :global(.pin) { color: var(--accent); }
+  .section {
+    display: flex; align-items: center; gap: 6px; padding: 8px 18px 6px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; z-index: 1;
+  }
   .row.selected { background: var(--accent-soft); }
   .acct { position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; }
   .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

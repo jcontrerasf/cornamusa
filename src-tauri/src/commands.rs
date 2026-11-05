@@ -108,6 +108,11 @@ pub async fn list_messages(state: State<'_, AppState>, folder_id: i64, limit: i6
     state.service.store().messages(folder_id, limit, offset).await
 }
 
+#[tauri::command]
+pub async fn set_thread_pinned(state: State<'_, AppState>, account_id: String, thread_id: String, pinned: bool) -> Cmd<()> {
+    state.service.store().set_thread_pinned(&account_id, &thread_id, pinned).await
+}
+
 // ---------------------------------------------------------------- reading
 
 #[tauri::command]
@@ -229,6 +234,59 @@ pub async fn read_attachment(state: State<'_, AppState>, message_id: i64, index:
         AttachmentKind::Image | AttachmentKind::Pdf => Ok(tauri::ipc::Response::new(bytes)),
         _ => Err(Error::Other("Este tipo de adjunto no se puede previsualizar".into())),
     }
+}
+
+// ---------------------------------------------------------------- custom sound
+
+const SOUND_EXTENSIONS: &[&str] = &["wav", "mp3", "ogg", "oga", "opus", "flac", "m4a", "aac", "webm"];
+const MAX_SOUND_BYTES: u64 = 5 * 1024 * 1024;
+
+fn sounds_dir(app: &AppHandle) -> Result<std::path::PathBuf> {
+    app.path().app_data_dir().map(|d| d.join("sounds")).map_err(|e| Error::Other(e.to_string()))
+}
+
+/// The copied custom sound, whatever its extension.
+fn custom_sound_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(sounds_dir(app).ok()?)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_stem().is_some_and(|s| s == "custom"))
+}
+
+/// Lets the user pick an audio file for new mail and copies it into the app's data folder, so
+/// it keeps working if the original is moved. Returns the original file name, `None` if the
+/// dialog was cancelled.
+#[tauri::command]
+pub async fn pick_custom_sound(app: AppHandle) -> Cmd<Option<String>> {
+    let dialog_app = app.clone();
+    let picked = tokio::task::spawn_blocking(move || {
+        dialog_app.dialog().file().set_title("Elegir sonido").add_filter("Audio", SOUND_EXTENSIONS).blocking_pick_file()
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))?;
+    let Some(src) = picked.and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let ext = src.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if !SOUND_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(Error::Other("Ese archivo no es un formato de audio compatible".into()));
+    }
+    if tokio::fs::metadata(&src).await?.len() > MAX_SOUND_BYTES {
+        return Err(Error::Other("El sonido es demasiado grande (máximo 5 MB)".into()));
+    }
+    let dir = sounds_dir(&app)?;
+    tokio::fs::create_dir_all(&dir).await?;
+    if let Some(old) = custom_sound_path(&app) {
+        let _ = tokio::fs::remove_file(old).await;
+    }
+    tokio::fs::copy(&src, dir.join(format!("custom.{ext}"))).await?;
+    Ok(src.file_name().map(|n| n.to_string_lossy().into_owned()))
+}
+
+/// Bytes of the custom sound, decoded by the UI's Web Audio (raw binary, no base64).
+#[tauri::command]
+pub async fn read_custom_sound(app: AppHandle) -> Cmd<tauri::ipc::Response> {
+    let path = custom_sound_path(&app).ok_or_else(|| Error::Other("No hay un sonido personalizado".into()))?;
+    Ok(tauri::ipc::Response::new(tokio::fs::read(path).await?))
 }
 
 /// Writes an attachment to the temporary folder and returns its path. Refuses anything that

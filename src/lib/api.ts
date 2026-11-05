@@ -89,6 +89,7 @@ export interface Thread {
   preview: string;
   latestId: number;
   accountId: string;
+  pinned: boolean;
 }
 
 export interface Signature {
@@ -123,11 +124,17 @@ export interface Settings {
   loadRemoteImages: boolean;
   startMinimized: boolean;
   sidebarCollapsed: boolean;
-  /** Bundled sound name, 'system' or 'none'. */
+  /** Bundled sound name, 'custom', 'system' or 'none'. */
   newMailSound: string;
   /** Folders hidden from the sidebar, as "accountId:path". */
   hiddenFolders: string[];
+  /** Original name of the user's own sound file (copied into the app's data folder). */
+  customSoundName: string | null;
+  /** Conversations kept open as tabs, in order. */
+  openTabs: OpenTab[];
 }
+
+export interface OpenTab { accountId: string; threadId: string; subject: string }
 
 export interface SettingsView extends Settings { autostart: boolean }
 
@@ -175,6 +182,8 @@ export const api = {
     invoke<MessageBody[]>('get_thread', { accountId, threadId, forceRemote }),
   threadRows: (accountId: string, threadId: string, folderIds: number[]) =>
     invoke<number[]>('thread_rows', { accountId, threadId, folderIds }),
+  setThreadPinned: (accountId: string, threadId: string, pinned: boolean) =>
+    invoke<void>('set_thread_pinned', { accountId, threadId, pinned }),
 
   setSeen: (ids: number[], seen: boolean) => invoke<void>('set_seen', { ids, seen }),
   setFlagged: (ids: number[], flagged: boolean) => invoke<void>('set_flagged', { ids, flagged }),
@@ -188,6 +197,8 @@ export const api = {
   saveAttachment: (messageId: number, index: number) => invoke<boolean>('save_attachment', { messageId, index }),
   readAttachment: (messageId: number, index: number) => invoke<ArrayBuffer>('read_attachment', { messageId, index }),
   openAttachment: (messageId: number, index: number) => invoke<void>('open_attachment', { messageId, index }),
+  pickCustomSound: () => invoke<string | null>('pick_custom_sound'),
+  readCustomSound: () => invoke<ArrayBuffer>('read_custom_sound'),
   openAttachmentWith: (messageId: number, index: number) => invoke<boolean>('open_attachment_with', { messageId, index }),
 
   search: (query: string, accountId: string | null = null) => invoke<MessageSummary[]>('search', { query, accountId }),
