@@ -132,7 +132,20 @@ export interface Settings {
   customSoundName: string | null;
   /** Conversations kept open as tabs, in order. */
   openTabs: OpenTab[];
+  /** Key that sends the chat quick reply. */
+  chatSendKey: SendKey;
+  /** Key that sends from the full composer ('enter' is not offered there). */
+  composerSendKey: SendKey;
+  /** Default signatures per account id; accounts without an entry use the signatures' isDefault. */
+  signatureDefaults: Record<string, SignatureDefaults>;
+  /** New-mail sound per account id, overriding newMailSound. */
+  accountSounds: Record<string, string>;
 }
+
+export type SendKey = 'enter' | 'ctrlEnter' | 'none';
+
+/** Signature ids; null means no signature. */
+export interface SignatureDefaults { new: string | null; reply: string | null }
 
 export interface OpenTab { accountId: string; threadId: string; subject: string }
 

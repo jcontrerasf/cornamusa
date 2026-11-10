@@ -10,7 +10,7 @@
   import AccountWizard from './lib/components/AccountWizard.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import AttachmentViewer from './lib/components/AttachmentViewer.svelte';
-  import { playSound } from './lib/sounds';
+  import { playSound, soundFor } from './lib/sounds';
 
   let list: ThreadList | undefined = $state();
   let pane: ReadingPane | undefined = $state();
@@ -51,7 +51,7 @@
           case 'newMail': {
             // One sound per batch; the backend emits a single event for several new messages.
             const s = app.settings;
-            if (s && s.notifications && !s.doNotDisturb && e.messages.length) playSound(s.newMailSound);
+            if (s && s.notifications && !s.doNotDisturb && e.messages.length) playSound(soundFor(s, e.accountId));
             break;
           }
           case 'syncStatus':

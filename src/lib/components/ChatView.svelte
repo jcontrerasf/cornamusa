@@ -4,12 +4,12 @@
   import { tick } from 'svelte';
   import { api, type Account, type MessageBody } from '../api';
   import { app } from '../state.svelte';
-  import { colorFor, displayName, escapeHtml, formatDay, formatFullDate, formatTime, sameEmail, textToHtml } from '../util';
+  import { colorFor, displayName, escapeHtml, formatDay, formatFullDate, formatTime, isSendShortcut, sameEmail, sendShortcutLabel, textToHtml } from '../util';
   import { linkify, replyRecipients, replySubject, signatureHtml, signatureText, threadingHeaders } from '../compose';
   import Avatar from './Avatar.svelte';
   import MessageFrame from './MessageFrame.svelte';
   import AttachmentChips from './AttachmentChips.svelte';
-  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp } from '@lucide/svelte';
+  import { SendHorizontal, Maximize2, ChevronDown, ChevronUp, PenLine } from '@lucide/svelte';
 
   let { messages, account, allowRemote, onSent, themeMode = 'auto', anyDark = $bindable(null) }: {
     messages: MessageBody[]; account: Account; allowRemote: boolean; onSent: () => void;
@@ -24,6 +24,22 @@
   let sending = $state(false);
   let showOriginal = $state<Record<number, boolean>>({});
   let rendersDark = $state<Record<number, boolean>>({});
+
+  const sendKey = $derived(app.settings?.chatSendKey ?? 'enter');
+  const placeholder = $derived.by(() => {
+    if (sendKey === 'enter') return 'Responder a todos… (Enter para enviar, Shift+Enter nueva línea)';
+    const label = sendShortcutLabel(sendKey);
+    return label ? `Responder a todos… (${label} para enviar)` : 'Responder a todos…';
+  });
+
+  // Signature for the quick reply: the account's reply default, changeable per message.
+  const signatures = $derived(app.signaturesFor(account.id));
+  let pickedSignature = $state<{ account: string; id: string } | null>(null);
+  const signatureId = $derived(
+    pickedSignature && pickedSignature.account === account.id
+      ? pickedSignature.id
+      : (app.defaultSignature(account.id, 'reply')?.id ?? ''),
+  );
 
   $effect(() => {
     const open = messages.filter((m) => showOriginal[m.summary.id]).map((m) => m.summary.id);
@@ -75,7 +91,7 @@
     const text = draft.trim();
     if (!text || !last || sending) return;
     sending = true;
-    const sig = app.defaultSignature(account.id);
+    const sig = app.signatures.find((s) => s.id === signatureId);
     const { to, cc } = replyRecipients(last, account, true);
     const { inReplyTo, references } = threadingHeaders(last);
     const sigHtml = signatureHtml(sig);
@@ -102,7 +118,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (isSendShortcut(e, sendKey)) {
       e.preventDefault();
       send();
     }
@@ -165,10 +181,19 @@
       class="selectable"
       bind:value={draft}
       onkeydown={onKey}
-      placeholder="Responder a todos… (Enter para enviar, Shift+Enter nueva línea)"
+      {placeholder}
       rows="1"
       disabled={sending}
     ></textarea>
+    {#if signatures.length}
+      <label class="sig" class:on={!!signatureId} title="Firma de la respuesta: {signatures.find((s) => s.id === signatureId)?.name ?? 'sin firma'}">
+        <PenLine size={16} />
+        <select value={signatureId} onchange={(e) => (pickedSignature = { account: account.id, id: e.currentTarget.value })} aria-label="Firma">
+          <option value="">Sin firma</option>
+          {#each signatures as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+        </select>
+      </label>
+    {/if}
     <button class="icon-btn" title="Abrir en el editor completo" onclick={() => last && app.compose({ mode: 'replyAll', accountId: account.id, source: last })}>
       <Maximize2 size={17} />
     </button>
@@ -229,6 +254,11 @@
     padding: 9px 16px; outline: none; max-height: 160px; field-sizing: content; line-height: 1.4;
   }
   textarea:focus { border-color: var(--accent); background: var(--surface); }
+  .sig { position: relative; width: 34px; height: 40px; display: grid; place-items: center; color: var(--text-3); flex-shrink: 0; border-radius: 8px; cursor: pointer; }
+  .sig.on { color: var(--accent); }
+  .sig:hover { background: var(--surface-2); }
+  /* The native select covers the icon invisibly so the whole button opens it. */
+  .sig select { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .send { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--accent); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
   .send:disabled { opacity: 0.4; cursor: default; }
 </style>

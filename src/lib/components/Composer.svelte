@@ -3,7 +3,7 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { api, type EmailAddress, type OutgoingMessage, type PickedFile } from '../api';
   import { app, type ComposeInit } from '../state.svelte';
-  import { formatSize, isValidEmail } from '../util';
+  import { formatSize, isSendShortcut, isValidEmail, sendShortcutLabel } from '../util';
   import { initialDraft, signatureHtml, signatureText } from '../compose';
   import RichEditor from './RichEditor.svelte';
   import RecipientInput from './RecipientInput.svelte';
@@ -17,6 +17,7 @@
   const src = init0.source;
   const start = initialDraft(init0, app.account(init0.accountId ?? src?.summary.accountId ?? ''), app.accounts[0]?.id ?? '');
   const mode = init0.mode;
+  const sigKind = mode === 'new' ? 'new' : 'reply';
 
   let accountId = $state(start.accountId);
   let to = $state<EmailAddress[]>(start.to);
@@ -27,7 +28,7 @@
   let bodyHtml = $state(start.content);
   let bodyText = $state(start.contentText);
   let attachments = $state<PickedFile[]>([]);
-  let signatureId = $state<string>(mode === 'draft' ? '' : (app.defaultSignature(start.accountId)?.id ?? ''));
+  let signatureId = $state<string>(mode === 'draft' ? '' : (app.defaultSignature(start.accountId, sigKind)?.id ?? ''));
   let includeQuote = $state(true);
   const { quoteHtml, quoteText, inReplyTo, references, forwardOf } = start;
   let draftId = $state<string | null>(start.draftId);
@@ -46,7 +47,8 @@
 
   const account = $derived(app.account(accountId));
   const signature = $derived(app.signatures.find((s) => s.id === signatureId));
-  const availableSignatures = $derived(app.signatures.filter((s) => s.accountId === null || s.accountId === accountId));
+  const availableSignatures = $derived(app.signaturesFor(accountId));
+  const sendKey = $derived(app.settings?.composerSendKey ?? 'ctrlEnter');
   const totalSize = $derived(attachments.reduce((n, a) => n + a.size, 0));
   const title = $derived(subject.trim() || (mode === 'forward' ? 'Reenviar' : mode.startsWith('reply') ? 'Responder' : 'Mensaje nuevo'));
 
@@ -55,7 +57,7 @@
   $effect(() => {
     if (accountId !== lastAccount) {
       lastAccount = accountId;
-      signatureId = app.defaultSignature(accountId)?.id ?? '';
+      signatureId = app.defaultSignature(accountId, sigKind)?.id ?? '';
     }
   });
 
@@ -144,7 +146,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (isSendShortcut(e, sendKey)) {
       e.preventDefault();
       send();
     } else if (e.key === 'Escape') {
@@ -258,7 +260,7 @@
       <button class="btn primary send" onclick={send} disabled={sending}>
         <SendHorizontal size={16} /> {sending ? 'Enviando…' : 'Enviar'}
       </button>
-      <span class="faint hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
+      {#if sendShortcutLabel(sendKey)}<span class="faint hint">{#each sendShortcutLabel(sendKey)!.split('+') as k, i}{#if i}+{/if}<kbd>{k}</kbd>{/each}</span>{/if}
       <button class="icon-btn" title="Adjuntar archivos" onclick={pickFiles}><Paperclip size={18} /></button>
       <select class="sig" bind:value={signatureId} title="Firma">
         <option value="">Sin firma</option>
@@ -292,7 +294,11 @@
   .body { flex: 1; overflow-y: auto; position: relative; display: flex; flex-direction: column; }
   .body.drag { outline: 2px dashed var(--accent); outline-offset: -8px; }
   .drop { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); font-weight: 600; pointer-events: none; }
-  .signature { padding: 0 18px 10px; }
+  /* Nothing in the body may shrink: the editor would collapse and the signature and quote
+     below it would be drawn over its toolbar and text. The body scrolls instead. */
+  .body > * { flex-shrink: 0; }
+  .body > :global(.editor) { flex: 1 0 auto; }
+  .signature { margin: 0 18px 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
   .sig-text { white-space: pre-wrap; color: var(--text-2); }
   .quote { padding: 4px 18px 14px; }
   .quote label { font-size: 12.5px; display: flex; gap: 6px; align-items: center; }

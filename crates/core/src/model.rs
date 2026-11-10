@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,6 +314,36 @@ pub struct Settings {
     /// Conversations kept open as tabs under the reading pane, in tab order.
     #[serde(default)]
     pub open_tabs: Vec<OpenTab>,
+    /// Key that sends the chat view's quick reply: "enter", "ctrlEnter" or "none".
+    #[serde(default = "default_chat_send_key")]
+    pub chat_send_key: String,
+    /// Key that sends from the full composer: "ctrlEnter" or "none".
+    #[serde(default = "default_composer_send_key")]
+    pub composer_send_key: String,
+    /// Default signatures per account id. Accounts without an entry fall back to the
+    /// signatures' own `is_default` flag (how older versions chose it).
+    #[serde(default)]
+    pub signature_defaults: HashMap<String, SignatureDefaults>,
+    /// New-mail sound per account id, overriding `new_mail_sound`.
+    #[serde(default)]
+    pub account_sounds: HashMap<String, String>,
+}
+
+/// Signature ids used by default; `None` means no signature.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureDefaults {
+    #[serde(default)]
+    pub new: Option<String>,
+    #[serde(default)]
+    pub reply: Option<String>,
+}
+
+impl Settings {
+    /// Sound to play for new mail in this account.
+    pub fn sound_for(&self, account_id: &str) -> &str {
+        self.account_sounds.get(account_id).unwrap_or(&self.new_mail_sound)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -324,6 +356,14 @@ pub struct OpenTab {
 
 fn default_sound() -> String {
     "corneta-suave".into()
+}
+
+fn default_chat_send_key() -> String {
+    "enter".into()
+}
+
+fn default_composer_send_key() -> String {
+    "ctrlEnter".into()
 }
 
 impl Default for Settings {
@@ -341,6 +381,10 @@ impl Default for Settings {
             hidden_folders: Vec::new(),
             custom_sound_name: None,
             open_tabs: Vec::new(),
+            chat_send_key: default_chat_send_key(),
+            composer_send_key: default_composer_send_key(),
+            signature_defaults: HashMap::new(),
+            account_sounds: HashMap::new(),
         }
     }
 }
@@ -351,4 +395,18 @@ pub struct NewMailEvent {
     pub account_id: String,
     pub folder_id: i64,
     pub messages: Vec<MessageSummary>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_per_account_overrides_general() {
+        let mut s = Settings::default();
+        s.new_mail_sound = "gaita-breve".into();
+        s.account_sounds.insert("trabajo".into(), "none".into());
+        assert_eq!(s.sound_for("trabajo"), "none");
+        assert_eq!(s.sound_for("personal"), "gaita-breve");
+    }
 }

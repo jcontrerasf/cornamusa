@@ -51,7 +51,7 @@ impl EventSink for TauriSink {
                 let s = self.settings.read().unwrap().clone();
                 if s.notifications && !s.do_not_disturb {
                     // Bundled sounds are played by the UI; only "system" uses the notification's.
-                    notify_new_mail(&self.app, ev, s.new_mail_sound == "system");
+                    notify_new_mail(&self.app, ev, s.sound_for(&ev.account_id) == "system");
                 }
             }
             Event::UnreadCount { count } => tray::set_unread(&self.app, *count),

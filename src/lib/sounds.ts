@@ -1,6 +1,6 @@
 // New-mail sounds bundled with the app (synthesized by assets/sounds/generate.py), plus the
 // user's own file ('custom'), copied into the app's data folder by the backend.
-import { api } from './api';
+import { api, type Settings } from './api';
 
 export const SOUNDS = [
   { id: 'corneta-suave', label: 'Corneta suave' },
@@ -14,6 +14,11 @@ export const CUSTOM_SOUND = 'custom';
 
 export function isBundledSound(id: string): boolean {
   return SOUNDS.some((s) => s.id === id);
+}
+
+/** New-mail sound for an account: its own choice, or the general one. */
+export function soundFor(settings: Pick<Settings, 'newMailSound' | 'accountSounds'>, accountId: string): string {
+  return settings.accountSounds?.[accountId] ?? settings.newMailSound;
 }
 
 /** Sounds the UI plays itself (as opposed to 'system' / 'none'). */

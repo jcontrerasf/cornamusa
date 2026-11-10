@@ -383,11 +383,36 @@ class AppState {
     this.signatures = await api.listSignatures();
   }
 
-  defaultSignature(accountId: string): Signature | undefined {
-    return (
+  /** Signatures that can be used from this account (its own and the shared ones). */
+  signaturesFor(accountId: string): Signature[] {
+    return this.signatures.filter((s) => s.accountId === null || s.accountId === accountId);
+  }
+
+  /** Default signature for new messages or for replies/forwards. Accounts not configured yet
+   *  use the isDefault flag older versions set, for both kinds. */
+  defaultSignature(accountId: string, kind: 'new' | 'reply'): Signature | undefined {
+    const id = this.signatureDefaultId(accountId, kind);
+    return id ? this.signatures.find((s) => s.id === id) : undefined;
+  }
+
+  signatureDefaultId(accountId: string, kind: 'new' | 'reply'): string | null {
+    const entry = this.settings?.signatureDefaults?.[accountId];
+    if (entry) return entry[kind];
+    const legacy =
       this.signatures.find((s) => s.accountId === accountId && s.isDefault) ??
-      this.signatures.find((s) => s.accountId === null && s.isDefault)
-    );
+      this.signatures.find((s) => s.accountId === null && s.isDefault);
+    return legacy?.id ?? null;
+  }
+
+  async setSignatureDefault(accountId: string, kind: 'new' | 'reply', id: string | null) {
+    if (!this.settings) return;
+    const entry = {
+      new: this.signatureDefaultId(accountId, 'new'),
+      reply: this.signatureDefaultId(accountId, 'reply'),
+      [kind]: id,
+    };
+    this.settings.signatureDefaults = { ...(this.settings.signatureDefaults ?? {}), [accountId]: entry };
+    await this.saveSettings();
   }
 }
 

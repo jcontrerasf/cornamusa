@@ -190,3 +190,15 @@ export function isWhiteBackground(color: string): boolean {
   const c = parseRgb(color);
   return !!c && c[3] > 0 && luminance(c) > 0.85;
 }
+
+/** Whether a keydown in a message box is the configured "send" shortcut. */
+export function isSendShortcut(e: KeyboardEvent, key: string): boolean {
+  if (e.key !== 'Enter' || e.isComposing || e.altKey) return false;
+  if (key === 'enter') return !e.shiftKey && !e.ctrlKey && !e.metaKey;
+  if (key === 'ctrlEnter') return !e.shiftKey && (e.ctrlKey || e.metaKey);
+  return false;
+}
+
+export function sendShortcutLabel(key: string): string | null {
+  return key === 'enter' ? 'Enter' : key === 'ctrlEnter' ? 'Ctrl+Enter' : null;
+}

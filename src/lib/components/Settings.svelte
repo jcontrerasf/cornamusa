@@ -1,9 +1,9 @@
 <script lang="ts">
   import { app } from '../state.svelte';
-  import { api, type Account } from '../api';
+  import { api, type Account, type SendKey } from '../api';
   import SignatureEditor from './SignatureEditor.svelte';
-  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play, FolderOpen } from '@lucide/svelte';
-  import { SOUNDS, CUSTOM_SOUND, isBundledSound, playSound, invalidateCustomSound } from '../sounds';
+  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play, FolderOpen, Volume2 } from '@lucide/svelte';
+  import { SOUNDS, CUSTOM_SOUND, isBundledSound, playSound, invalidateCustomSound, soundFor } from '../sounds';
   import { FOLDER_ICONS } from '../folders';
 
   const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#22c55e', '#0ea5e9'];
@@ -38,6 +38,28 @@
     } catch (e) {
       app.error(e);
     }
+  }
+
+  async function setSendKey(key: 'chatSendKey' | 'composerSendKey', value: SendKey) {
+    if (!app.settings) return;
+    app.settings[key] = value;
+    await app.saveSettings();
+  }
+
+  const soundLabel = (id: string) =>
+    id === CUSTOM_SOUND ? `Propio${s?.customSoundName ? `: ${s.customSoundName}` : ''}`
+    : id === 'system' ? 'Sonido del sistema'
+    : id === 'none' ? 'Sin sonido'
+    : (SOUNDS.find((o) => o.id === id)?.label ?? id);
+
+  async function setAccountSound(accountId: string, id: string) {
+    if (!app.settings) return;
+    const sounds = { ...(app.settings.accountSounds ?? {}) };
+    if (id === '') delete sounds[accountId];
+    else sounds[accountId] = id;
+    app.settings.accountSounds = sounds;
+    playSound(soundFor(app.settings, accountId));
+    await app.saveSettings();
   }
 
   async function setTheme(theme: 'system' | 'light' | 'dark') {
@@ -98,7 +120,7 @@
             <label class="switch"><input type="checkbox" checked={s.notifications} onchange={() => toggle('notifications')} /><span></span></label>
           </div>
           <div class="opt sound">
-            <div><strong>Sonido de correo nuevo</strong><p>Suena junto con la notificación (no con «No molestar»).</p></div>
+            <div><strong>Sonido de correo nuevo</strong><p>Suena junto con la notificación (no con «No molestar»). Cada cuenta puede tener el suyo o ninguno, en «Cuentas».</p></div>
             <div class="sounds" role="radiogroup" aria-label="Sonido de correo nuevo">
               {#each [...SOUNDS, { id: 'system', label: 'Sonido del sistema' }, { id: 'none', label: 'Sin sonido' }] as o (o.id)}
                 <div class="sound-row">
@@ -132,6 +154,24 @@
         </div>
         <div class="group">
           <div class="opt">
+            <div><strong>Enviar desde la vista chat</strong><p>Con Ctrl+Enter o desactivado, Enter agrega una línea y no envía por accidente.</p></div>
+            <div class="seg">
+              {#each [['enter', 'Enter'], ['ctrlEnter', 'Ctrl+Enter'], ['none', 'Solo el botón']] as [v, l]}
+                <button class:on={s.chatSendKey === v} onclick={() => setSendKey('chatSendKey', v as SendKey)}>{l}</button>
+              {/each}
+            </div>
+          </div>
+          <div class="opt">
+            <div><strong>Enviar desde el editor completo</strong></div>
+            <div class="seg">
+              {#each [['ctrlEnter', 'Ctrl+Enter'], ['none', 'Solo el botón']] as [v, l]}
+                <button class:on={s.composerSendKey === v} onclick={() => setSendKey('composerSendKey', v as SendKey)}>{l}</button>
+              {/each}
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="opt">
             <div><strong>Cargar imágenes remotas siempre</strong><p>Desactivado por privacidad: las imágenes remotas permiten a los remitentes saber cuándo y dónde abres un correo.</p></div>
             <label class="switch"><input type="checkbox" checked={s.loadRemoteImages} onchange={() => toggle('loadRemoteImages')} /><span></span></label>
           </div>
@@ -158,6 +198,18 @@
               <div class="faint small">{a.email} · {a.authUser ? `Buzón compartido · vía ${a.authUser}` : `${PROVIDER[a.provider]} · ${a.imap.host}`}</div>
               {#if app.syncErrors[a.id]}<div class="error small">{app.syncErrors[a.id]}</div>{/if}
             </div>
+            {#if s}
+              <label class="acct-sound" title={s.notifications ? 'Sonido de correo nuevo de esta cuenta' : 'Las notificaciones están desactivadas'}>
+                <Volume2 size={15} />
+                <select class="input" value={s.accountSounds?.[a.id] ?? ''} disabled={!s.notifications} onchange={(e) => setAccountSound(a.id, e.currentTarget.value)} aria-label="Sonido de correo nuevo · {a.email}">
+                  <option value="">General ({soundLabel(s.newMailSound)})</option>
+                  {#each SOUNDS as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+                  {#if s.customSoundName}<option value={CUSTOM_SOUND}>{soundLabel(CUSTOM_SOUND)}</option>{/if}
+                  <option value="system">Sonido del sistema</option>
+                  <option value="none">Sin sonido</option>
+                </select>
+              </label>
+            {/if}
             <button class="icon-btn" title="Sincronizar ahora" onclick={() => api.syncAccount(a.id).catch((e) => app.error(e))}><RefreshCw size={16} /></button>
             <button class="icon-btn" title="Quitar cuenta" onclick={() => remove(a)}><Trash2 size={16} /></button>
           </div>
@@ -213,7 +265,7 @@
   .custom-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   .custom-actions { display: flex; gap: 2px; flex-shrink: 0; }
   .seg { display: flex; background: var(--surface-2); padding: 3px; border-radius: 9px; }
-  .seg button { border: none; background: none; padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--text-2); }
+  .seg button { white-space: nowrap; border: none; background: none; padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--text-2); }
   .seg button.on { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: var(--shadow); }
   .account { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; }
   .colors { display: grid; grid-template-columns: repeat(4, 14px); gap: 5px; }
@@ -221,6 +273,8 @@
   .colors button.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor; color: var(--text-2); }
   .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .small { font-size: 12px; }
+  .acct-sound { display: flex; align-items: center; gap: 6px; color: var(--text-3); flex-shrink: 0; }
+  .acct-sound select { width: 200px; padding: 5px 8px; font-size: 12.5px; }
   .folders { margin: -4px 0 14px; padding: 0 14px; }
   .folders summary { cursor: pointer; font-size: 13px; color: var(--text-2); padding: 4px 0; }
   .folders p { margin: 4px 0 8px; }

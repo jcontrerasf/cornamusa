@@ -60,11 +60,49 @@
     editorKey++;
   }
 
+  const KINDS = [['new', 'Mensajes nuevos'], ['reply', 'Respuestas y reenvíos']] as const;
+
+  /** Where a signature is used by default, for its subtitle in the list. */
+  function usage(s: Signature): string {
+    const kinds = new Set<string>();
+    for (const a of app.accounts) {
+      if (app.signatureDefaultId(a.id, 'new') === s.id) kinds.add('nuevos');
+      if (app.signatureDefaultId(a.id, 'reply') === s.id) kinds.add('respuestas');
+    }
+    return kinds.size ? ` · ${[...kinds].join(' y ')}` : '';
+  }
+
   function switchHtmlMode(m: 'visual' | 'code') {
     htmlMode = m;
     editorKey++;
   }
 </script>
+
+{#if app.signatures.length && app.accounts.length}
+  <div class="defaults">
+    <h4>Firma predeterminada</h4>
+    <p class="faint small">Se pone sola al redactar; puedes cambiarla en cada mensaje.</p>
+    <table>
+      <thead><tr><th></th>{#each KINDS as [, label]}<th>{label}</th>{/each}</tr></thead>
+      <tbody>
+        {#each app.accounts as a (a.id)}
+          <tr>
+            <td class="acct" title={a.email}>{a.email}</td>
+            {#each KINDS as [kind, label]}
+              <td>
+                <select class="input" aria-label="{label} · {a.email}" value={app.signatureDefaultId(a.id, kind) ?? ''}
+                  onchange={(e) => app.setSignatureDefault(a.id, kind, e.currentTarget.value || null)}>
+                  <option value="">Sin firma</option>
+                  {#each app.signaturesFor(a.id) as sig (sig.id)}<option value={sig.id}>{sig.name}</option>{/each}
+                </select>
+              </td>
+            {/each}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+{/if}
 
 <div class="sig">
   <aside>
@@ -72,7 +110,7 @@
       <div class="item" class:active={current?.id === s.id}>
         <button class="pick" onclick={() => edit(s)}>
           <strong>{s.name}</strong>
-          <span class="faint">{s.accountId ? (app.account(s.accountId)?.email ?? '') : 'Todas las cuentas'}{s.isDefault ? ' · predeterminada' : ''}</span>
+          <span class="faint">{s.accountId ? (app.account(s.accountId)?.email ?? '') : 'Todas las cuentas'}{usage(s)}</span>
         </button>
         <button class="icon-btn" title="Eliminar" onclick={() => remove(s)}><Trash2 size={15} /></button>
       </div>
@@ -91,7 +129,6 @@
           </select>
         </label>
       </div>
-      <label class="check"><input type="checkbox" bind:checked={current.isDefault} /> Usar por defecto al redactar</label>
 
       <div class="modes">
         <div class="seg">
@@ -130,6 +167,14 @@
 </div>
 
 <style>
+  .defaults { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; }
+  .defaults h4 { margin: 0; font-size: 14px; }
+  .defaults p { margin: 2px 0 8px; }
+  .defaults table { width: 100%; border-collapse: collapse; }
+  .defaults th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 2px 6px; }
+  .defaults td { padding: 3px 6px; }
+  .defaults td.acct { font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .defaults select { width: 100%; padding: 5px 8px; font-size: 13px; }
   .sig { display: flex; gap: 20px; min-height: 420px; }
   aside { width: 180px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
   .item { display: flex; align-items: center; border-radius: 10px; border: 1px solid var(--border); }
@@ -138,7 +183,6 @@
   .pick span { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .edit { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .modes { display: flex; gap: 10px; }
   .seg { display: flex; background: var(--surface-2); padding: 3px; border-radius: 9px; }
   .seg button { display: flex; gap: 5px; align-items: center; border: none; background: none; padding: 5px 10px; border-radius: 7px; font-size: 12.5px; color: var(--text-2); }
