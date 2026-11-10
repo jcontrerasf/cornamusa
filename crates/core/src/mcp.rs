@@ -650,6 +650,7 @@ mod tests {
         .into_bytes()
     }
 
+    #[allow(clippy::too_many_arguments)] // test helper: one call per sample message
     async fn add(s: &Store, folder: i64, uid: u32, id: &str, irt: Option<&str>, from: (&str, &str), date: i64, body: &str) {
         let h = ParsedHeaders {
             message_id: Some(id.into()),

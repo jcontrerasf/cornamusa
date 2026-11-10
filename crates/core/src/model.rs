@@ -407,8 +407,7 @@ mod tests {
 
     #[test]
     fn sound_per_account_overrides_general() {
-        let mut s = Settings::default();
-        s.new_mail_sound = "gaita-breve".into();
+        let mut s = Settings { new_mail_sound: "gaita-breve".into(), ..Default::default() };
         s.account_sounds.insert("trabajo".into(), "none".into());
         assert_eq!(s.sound_for("trabajo"), "none");
         assert_eq!(s.sound_for("personal"), "gaita-breve");
