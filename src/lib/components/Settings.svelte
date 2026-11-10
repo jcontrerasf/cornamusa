@@ -2,9 +2,10 @@
   import { app } from '../state.svelte';
   import { api, type Account, type SendKey } from '../api';
   import SignatureEditor from './SignatureEditor.svelte';
-  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play, FolderOpen, Volume2 } from '@lucide/svelte';
+  import { X, SlidersHorizontal, Users, PenLine, Trash2, Plus, RefreshCw, Play, FolderOpen, Volume2, Copy } from '@lucide/svelte';
   import { SOUNDS, CUSTOM_SOUND, isBundledSound, playSound, invalidateCustomSound, soundFor } from '../sounds';
   import { FOLDER_ICONS } from '../folders';
+  import { copyText } from '../util';
 
   const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#22c55e', '#0ea5e9'];
   const PROVIDER: Record<string, string> = { gmail: 'Gmail', outlook: 'Outlook / Microsoft 365', imap: 'IMAP' };
@@ -12,7 +13,7 @@
   const tab = $derived(app.showSettings ?? 'general');
   const s = $derived(app.settings);
 
-  async function toggle(key: 'closeToTray' | 'notifications' | 'doNotDisturb' | 'loadRemoteImages' | 'startMinimized' | 'autostart') {
+  async function toggle(key: 'closeToTray' | 'notifications' | 'doNotDisturb' | 'loadRemoteImages' | 'startMinimized' | 'autostart' | 'mcpEnabled') {
     if (!app.settings) return;
     app.settings[key] = !app.settings[key];
     await app.saveSettings();
@@ -38,6 +39,19 @@
     } catch (e) {
       app.error(e);
     }
+  }
+
+  // MCP setup snippets, built from the real executable path.
+  let exePath = $state('');
+  $effect(() => {
+    if (s?.mcpEnabled && !exePath) api.mcpCommand().then((p) => (exePath = p)).catch((e) => app.error(e));
+  });
+  const quoteArg = (p: string) => (/[\s"']/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p);
+  const claudeCodeCmd = $derived(`claude mcp add --scope user cornamusa -- ${quoteArg(exePath)} mcp`);
+  const desktopJson = $derived(JSON.stringify({ mcpServers: { cornamusa: { command: exePath, args: ['mcp'] } } }, null, 2));
+
+  async function copy(text: string) {
+    if (await copyText(text)) app.toast('Copiado', 'success');
   }
 
   async function setSendKey(key: 'chatSendKey' | 'composerSendKey', value: SendKey) {
@@ -172,6 +186,30 @@
         </div>
         <div class="group">
           <div class="opt">
+            <div>
+              <strong>Integración con Claude (MCP)</strong>
+              <p>Permite que Claude Code o Claude Desktop lean tus correos y te dejen borradores abiertos aquí para revisar. Claude no puede enviar ni borrar nada. Lo que Claude lee se envía a Anthropic con tu cuenta de Claude.</p>
+            </div>
+            <label class="switch"><input type="checkbox" checked={s.mcpEnabled} onchange={() => toggle('mcpEnabled')} /><span></span></label>
+          </div>
+          {#if s.mcpEnabled && exePath}
+            <div class="opt mcp">
+              <div class="snippet">
+                <div class="snippet-head"><strong>Claude Code</strong><span class="faint">ejecuta en una terminal:</span>
+                  <button class="icon-btn" title="Copiar" onclick={() => copy(claudeCodeCmd)}><Copy size={14} /></button></div>
+                <pre class="selectable">{claudeCodeCmd}</pre>
+              </div>
+              <div class="snippet">
+                <div class="snippet-head"><strong>Claude Desktop</strong><span class="faint">en Configuración → Desarrollador → Editar configuración:</span>
+                  <button class="icon-btn" title="Copiar" onclick={() => copy(desktopJson)}><Copy size={14} /></button></div>
+                <pre class="selectable">{desktopJson}</pre>
+              </div>
+              <p>En la vista de un correo, el botón de enlace copia una referencia al hilo para pegarla en tu instrucción: «respóndele a este que sí: cornamusa://hilo/…».</p>
+            </div>
+          {/if}
+        </div>
+        <div class="group">
+          <div class="opt">
             <div><strong>Cargar imágenes remotas siempre</strong><p>Desactivado por privacidad: las imágenes remotas permiten a los remitentes saber cuándo y dónde abres un correo.</p></div>
             <label class="switch"><input type="checkbox" checked={s.loadRemoteImages} onchange={() => toggle('loadRemoteImages')} /><span></span></label>
           </div>
@@ -273,6 +311,10 @@
   .colors button.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor; color: var(--text-2); }
   .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .small { font-size: 12px; }
+  .opt.mcp { flex-direction: column; align-items: stretch; gap: 10px; }
+  .snippet-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .snippet-head .faint { font-size: 12px; flex: 1; }
+  .snippet pre { margin: 4px 0 0; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
   .acct-sound { display: flex; align-items: center; gap: 6px; color: var(--text-3); flex-shrink: 0; }
   .acct-sound select { width: 200px; padding: 5px 8px; font-size: 12.5px; }
   .folders { margin: -4px 0 14px; padding: 0 14px; }

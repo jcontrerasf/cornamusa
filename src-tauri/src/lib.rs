@@ -1,10 +1,12 @@
 mod commands;
+mod mcp_bridge;
 mod open_with;
 mod tray;
 
 use cornamusa_core::model::Settings;
 use cornamusa_core::service::{Event, EventSink, MailService};
 use cornamusa_core::store::Store;
+use cornamusa_core::mcp::{DraftRequest, McpHandle, McpUi};
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 #[cfg(not(target_os = "linux"))]
@@ -14,6 +16,44 @@ pub struct AppState {
     pub service: Arc<MailService>,
     /// Copy of the settings for synchronous checks (close button, notifications).
     pub settings: Arc<RwLock<Settings>>,
+    /// MCP listener for Claude, while the integration is enabled.
+    pub mcp: tokio::sync::Mutex<Option<McpHandle>>,
+}
+
+/// Entry point of `cornamusa mcp` (see main.rs).
+pub fn mcp_bridge() -> i32 {
+    mcp_bridge::run()
+}
+
+/// Drafts prepared by Claude open in the composer.
+struct TauriMcpUi(AppHandle);
+
+impl McpUi for TauriMcpUi {
+    fn open_draft(&self, draft: DraftRequest) {
+        show_main_window(&self.0);
+        let _ = self.0.emit("app://compose-draft", &draft);
+    }
+}
+
+/// Starts or stops the MCP listener to match the setting.
+pub(crate) async fn apply_mcp(app: &AppHandle, enabled: bool) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let mut slot = state.mcp.lock().await;
+    if !enabled {
+        *slot = None; // dropping the handle stops it and removes mcp.json
+        return;
+    }
+    if slot.is_some() {
+        return;
+    }
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d,
+        Err(e) => return tracing::warn!("mcp: {e}"),
+    };
+    match cornamusa_core::mcp::listen(state.service.clone(), Arc::new(TauriMcpUi(app.clone())), &dir).await {
+        Ok(h) => *slot = Some(h),
+        Err(e) => tracing::warn!("mcp: no se pudo iniciar: {e}"),
+    }
 }
 
 /// Safety net for links: the app's webview (and the mail iframes inside it) never loads an
@@ -160,6 +200,9 @@ fn clean_attachments_dir(app: &AppHandle) {
 pub fn quit(app: &AppHandle) {
     if let Some(state) = app.try_state::<AppState>() {
         state.service.stop_all();
+        if let Ok(mut mcp) = state.mcp.try_lock() {
+            *mcp = None;
+        }
     }
     app.exit(0);
 }
@@ -177,7 +220,12 @@ pub fn run() {
     #[cfg(desktop)]
     {
         // Launching the app again focuses the running instance instead of opening another.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)));
+        // `--minimized` comes from the MCP bridge or autostart: stay in the tray.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|a| a == "--minimized") {
+                show_main_window(app);
+            }
+        }));
     }
 
     builder
@@ -198,7 +246,7 @@ pub fn run() {
 
             let sink = Arc::new(TauriSink { app: app.handle().clone(), settings: settings.clone() });
             let service = MailService::new(store, sink);
-            app.manage(AppState { service: service.clone(), settings: settings.clone() });
+            app.manage(AppState { service: service.clone(), settings: settings.clone(), mcp: Default::default() });
 
             tray::create(app.handle())?;
             clean_attachments_dir(app.handle());
@@ -210,7 +258,9 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
+            let mcp_enabled = settings.read().unwrap().mcp_enabled;
             tauri::async_runtime::spawn(async move {
+                apply_mcp(&handle, mcp_enabled).await;
                 if let Ok(count) = service.store().unread_inbox_count().await {
                     tray::set_unread(&handle, count);
                 }
@@ -277,6 +327,7 @@ pub fn run() {
             commands::trust_sender,
             commands::open_external,
             commands::unread_count,
+            commands::mcp_command,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Cornamusa");

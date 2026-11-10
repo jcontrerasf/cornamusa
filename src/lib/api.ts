@@ -140,6 +140,20 @@ export interface Settings {
   signatureDefaults: Record<string, SignatureDefaults>;
   /** New-mail sound per account id, overriding newMailSound. */
   accountSounds: Record<string, string>;
+  /** Lets Claude read mail and open drafts through MCP. */
+  mcpEnabled: boolean;
+}
+
+/** Draft prepared by Claude through MCP (see crates/core/src/mcp.rs). */
+export interface DraftRequest {
+  accountId: string | null;
+  replyTo: { accountId: string; threadId: string } | null;
+  replyAll: boolean;
+  to: EmailAddress[];
+  cc: EmailAddress[];
+  subject: string | null;
+  /** Plain text, without signature or quote. */
+  body: string;
 }
 
 export type SendKey = 'enter' | 'ctrlEnter' | 'none';
@@ -226,12 +240,14 @@ export const api = {
   trustSender: (email: string) => invoke<void>('trust_sender', { email }),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
   unreadCount: () => invoke<number>('unread_count'),
+  /** Path of the Cornamusa executable, for the MCP client configuration. */
+  mcpCommand: () => invoke<string>('mcp_command'),
 };
 
 export function onMailEvent(cb: (e: MailEvent) => void): Promise<UnlistenFn> {
   return listen<MailEvent>('mail://event', (e) => cb(e.payload));
 }
 
-export function onAppEvent<T>(name: 'app://compose' | 'app://settings', cb: (payload: T) => void): Promise<UnlistenFn> {
+export function onAppEvent<T>(name: 'app://compose' | 'app://settings' | 'app://compose-draft', cb: (payload: T) => void): Promise<UnlistenFn> {
   return listen<T>(name, (e) => cb(e.payload));
 }

@@ -11,6 +11,10 @@ export interface ComposeInit {
   mode: ComposeMode;
   accountId?: string;
   to?: EmailAddress[];
+  cc?: EmailAddress[];
+  subject?: string;
+  /** Initial body (HTML), e.g. a draft prepared by Claude. */
+  body?: string;
   source?: MessageBody;
 }
 
@@ -33,6 +37,8 @@ class AppState {
   syncing = $state<Record<string, boolean>>({});
   syncErrors = $state<Record<string, string | null>>({});
   composer = $state<ComposeInit | null>(null);
+  /** Drafts from Claude waiting for the open composer to close. */
+  pendingDrafts = $state<ComposeInit[]>([]);
   showSettings = $state<null | 'general' | 'accounts' | 'signatures'>(null);
   showWizard = $state(false);
   /** Attachment open in the built-in viewer. */

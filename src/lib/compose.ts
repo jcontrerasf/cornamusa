@@ -118,7 +118,7 @@ export function initialDraft(init: ComposeInit, account: Account | undefined, fa
     to: init.to ?? [], cc: [], subject: '', content: '', contentText: '', quoteHtml: '', quoteText: '',
     inReplyTo: null, references: [], forwardOf: null, draftId: null,
   };
-  if (!src || !account) return start;
+  if (!src || !account) return withOverrides(init, start);
   const th = threadingHeaders(src);
   if (init.mode === 'reply' || init.mode === 'replyAll') {
     const r = replyRecipients(src, account, init.mode === 'replyAll');
@@ -137,6 +137,19 @@ export function initialDraft(init: ComposeInit, account: Account | undefined, fa
       content: src.html ?? textToHtml(src.text ?? ''), contentText: src.text ?? '',
       draftId: src.summary.messageId, inReplyTo: src.inReplyTo, references: src.references,
     });
+  }
+  return withOverrides(init, start);
+}
+
+/** Explicit values (drafts prepared by Claude) win over the ones derived from the source. */
+function withOverrides(init: ComposeInit, start: DraftStart): DraftStart {
+  if (init.mode === 'draft') return start;
+  if (init.to?.length) start.to = init.to;
+  if (init.cc?.length) start.cc = init.cc;
+  if (init.subject) start.subject = init.subject;
+  if (init.body) {
+    start.content = init.body;
+    start.contentText = htmlToText(init.body);
   }
   return start;
 }

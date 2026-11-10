@@ -327,6 +327,9 @@ pub struct Settings {
     /// New-mail sound per account id, overriding `new_mail_sound`.
     #[serde(default)]
     pub account_sounds: HashMap<String, String>,
+    /// Lets Claude (Claude Code / Claude Desktop) read mail and open drafts through MCP.
+    #[serde(default)]
+    pub mcp_enabled: bool,
 }
 
 /// Signature ids used by default; `None` means no signature.
@@ -385,6 +388,7 @@ impl Default for Settings {
             composer_send_key: default_composer_send_key(),
             signature_defaults: HashMap::new(),
             account_sounds: HashMap::new(),
+            mcp_enabled: false,
         }
     }
 }

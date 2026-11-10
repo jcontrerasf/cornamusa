@@ -202,3 +202,40 @@ export function isSendShortcut(e: KeyboardEvent, key: string): boolean {
 export function sendShortcutLabel(key: string): string | null {
   return key === 'enter' ? 'Enter' : key === 'ctrlEnter' ? 'Ctrl+Enter' : null;
 }
+
+/** Plain text with blank-line paragraphs as editor HTML (one <p> per paragraph). */
+export function paragraphsToHtml(s: string): string {
+  return s
+    .trim()
+    .split(/\r?\n\s*\r?\n/)
+    .map((p) => `<p>${textToHtml(p.trim())}</p>`)
+    .join('');
+}
+
+/** Reference to a conversation for Claude (MCP). Same format as thread_ref in crates/core/src/mcp.rs:
+ *  built from a Message-ID of the thread, which survives thread merges. */
+export function threadRef(accountId: string, messageOrThreadId: string): string {
+  const enc = (s: string) => Array.from(new TextEncoder().encode(s), (b) => {
+    const c = String.fromCharCode(b);
+    return /[A-Za-z0-9\-._~@]/.test(c) ? c : '%' + b.toString(16).toUpperCase().padStart(2, '0');
+  }).join('');
+  return `cornamusa://hilo/${enc(accountId)}/${enc(messageOrThreadId)}`;
+}
+
+/** Copies text to the clipboard, with a fallback for webviews without the async clipboard API. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}

@@ -369,6 +369,7 @@ pub async fn get_settings(app: AppHandle, state: State<'_, AppState>) -> Cmd<Set
 pub async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Settings, autostart: bool) -> Cmd<()> {
     state.service.store().save_settings(&settings).await?;
     *state.settings.write().unwrap() = settings.clone();
+    crate::apply_mcp(&app, settings.mcp_enabled).await;
     if let Some(dnd) = app.try_state::<crate::tray::DndItem>() {
         let _ = dnd.0.set_checked(settings.do_not_disturb);
     }
@@ -379,6 +380,16 @@ pub async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings:
     }
     let _ = app.emit("app://settings", &settings);
     Ok(())
+}
+
+/// Path of this executable, for the MCP setup shown in Settings (`<path> mcp`).
+#[tauri::command]
+pub fn mcp_command() -> Cmd<String> {
+    // An AppImage runs from a temporary mount; the stable path is the .AppImage file itself.
+    if let Some(appimage) = std::env::var_os("APPIMAGE") {
+        return Ok(appimage.to_string_lossy().into_owned());
+    }
+    Ok(std::env::current_exe()?.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

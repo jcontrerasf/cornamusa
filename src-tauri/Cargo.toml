@@ -26,6 +26,8 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
+# Same folder resolution as Tauri's app_data_dir, for the MCP bridge (runs without Tauri).
+dirs = "6"
 
 # "Abrir con…": the desktop portal shows the native application chooser.
 [target.'cfg(target_os = "linux")'.dependencies]

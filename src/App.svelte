@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { app } from './lib/state.svelte';
-  import { onAppEvent, onMailEvent, type Settings as SettingsT } from './lib/api';
+  import { api, onAppEvent, onMailEvent, type DraftRequest, type Settings as SettingsT } from './lib/api';
+  import type { ComposeInit } from './lib/state.svelte';
+  import { paragraphsToHtml } from './lib/util';
   import Sidebar from './lib/components/Sidebar.svelte';
   import ThreadList from './lib/components/ThreadList.svelte';
   import ReadingPane from './lib/components/ReadingPane.svelte';
@@ -31,6 +33,39 @@
       ids.forEach((id) => pane?.refreshIfShowing(id));
     }, 250);
   }
+
+  /** Draft prepared by Claude (MCP): a reply to a thread or a new message, opened for review. */
+  async function openClaudeDraft(d: DraftRequest) {
+    const base = { to: d.to, cc: d.cc, subject: d.subject ?? undefined, body: paragraphsToHtml(d.body) };
+    let init: ComposeInit;
+    try {
+      if (d.replyTo) {
+        const thread = await api.getThread(d.replyTo.accountId, d.replyTo.threadId);
+        const source = thread[thread.length - 1];
+        if (!source) throw new Error('No encontré el hilo al que responde el borrador');
+        init = { ...base, mode: d.replyAll ? 'replyAll' : 'reply', accountId: d.replyTo.accountId, source };
+      } else {
+        init = { ...base, mode: 'new', accountId: d.accountId ?? undefined };
+      }
+    } catch (e) {
+      return app.error(e);
+    }
+    if (app.composer) {
+      // Never replace what the user is writing: open it when the current composer closes.
+      app.pendingDrafts = [...app.pendingDrafts, init];
+      app.toast('Claude preparó un borrador; se abrirá al cerrar el mensaje actual');
+    } else {
+      app.compose(init);
+    }
+  }
+
+  $effect(() => {
+    if (!app.composer && app.pendingDrafts.length) {
+      const [next, ...rest] = app.pendingDrafts;
+      app.pendingDrafts = rest;
+      app.compose(next);
+    }
+  });
 
   $effect(() => {
     const theme = app.settings?.theme ?? 'system';
@@ -64,6 +99,7 @@
         }
       }),
       await onAppEvent('app://compose', () => app.compose()),
+      await onAppEvent<DraftRequest>('app://compose-draft', (d) => openClaudeDraft(d)),
       await onAppEvent<SettingsT>('app://settings', (s) => {
         if (app.settings) Object.assign(app.settings, s);
       }),

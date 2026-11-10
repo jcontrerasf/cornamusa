@@ -6,8 +6,9 @@
   import TabBar from './TabBar.svelte';
   import {
     Reply, ReplyAll, Forward, Archive, Trash2, ShieldAlert, Inbox, Mail, Star, MessagesSquare, Rows3, ImageOff,
-    AppWindow, Sun, Moon,
+    AppWindow, Sun, Moon, Link,
   } from '@lucide/svelte';
+  import { copyText, threadRef } from '../util';
 
   let messages = $state<MessageBody[]>([]);
   let loading = $state(false);
@@ -109,6 +110,15 @@
   export function togglePin() {
     if (sel) app.toggleThreadPinned(sel);
   }
+  /** Copies a reference to this conversation to paste into an instruction for Claude (MCP). */
+  async function copyRef() {
+    if (!sel || !last) return;
+    const ref = threadRef(sel.accountId, last.summary.messageId ?? sel.threadId);
+    const subject = messages[0]?.summary.subject.trim();
+    if (await copyText(subject ? `«${subject}» ${ref}` : ref)) app.toast('Referencia copiada: pégala en tu instrucción a Claude', 'success');
+    else app.toast('No se pudo copiar al portapapeles', 'error');
+  }
+
   function toggleTheme() {
     themeMode = anyDark ? 'light' : 'dark';
   }
@@ -160,6 +170,9 @@
           <button class="icon-btn" title={anyDark ? 'Ver con fondo claro' : 'Ver en modo oscuro'} onclick={toggleTheme}>
             {#if anyDark}<Sun size={18} />{:else}<Moon size={18} />{/if}
           </button>
+        {/if}
+        {#if app.settings?.mcpEnabled}
+          <button class="icon-btn" title="Copiar referencia para Claude" onclick={copyRef} disabled={!last}><Link size={18} /></button>
         {/if}
         <button class="icon-btn" class:active={app.isTabOpen(sel)} onclick={toggleTab}
           title={app.isTabOpen(sel) ? 'Cerrar pestaña (T)' : 'Mantener abierto en una pestaña (T)'}>

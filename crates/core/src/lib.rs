@@ -3,6 +3,7 @@
 pub mod attachments;
 pub mod error;
 pub mod imap;
+pub mod mcp;
 pub mod mime;
 pub mod model;
 pub mod oauth;
