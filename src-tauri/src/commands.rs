@@ -2,6 +2,7 @@
 
 use crate::AppState;
 use cornamusa_core::attachments::{can_open_externally, classify, AttachmentKind};
+use cornamusa_core::mcp::DraftState;
 use cornamusa_core::mime::sanitize_filename;
 use cornamusa_core::model::*;
 use cornamusa_core::providers::DetectedConfig;
@@ -380,6 +381,14 @@ pub async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings:
     }
     let _ = app.emit("app://settings", &settings);
     Ok(())
+}
+
+/// Answer of the window to a draft change asked by Claude (see `TauriMcpUi::change_draft`).
+#[tauri::command]
+pub fn mcp_draft_result(state: State<'_, AppState>, request_id: u64, draft: Option<DraftState>, error: Option<String>) {
+    if let Some(reply) = state.draft_replies.lock().unwrap().remove(&request_id) {
+        let _ = reply.send(draft.ok_or_else(|| error.unwrap_or_else(|| "No se pudo cambiar el borrador".into())));
+    }
 }
 
 /// Path of this executable, for the MCP setup shown in Settings (`<path> mcp`).

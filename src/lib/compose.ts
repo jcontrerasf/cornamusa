@@ -143,13 +143,13 @@ export function initialDraft(init: ComposeInit, account: Account | undefined, fa
 
 /** Explicit values (drafts prepared by Claude) win over the ones derived from the source. */
 function withOverrides(init: ComposeInit, start: DraftStart): DraftStart {
-  if (init.mode === 'draft') return start;
-  if (init.to?.length) start.to = init.to;
-  if (init.cc?.length) start.cc = init.cc;
-  if (init.subject) start.subject = init.subject;
-  if (init.body) {
+  if (init.to !== undefined) start.to = init.to;
+  if (init.cc !== undefined) start.cc = init.cc;
+  if (init.subject !== undefined) start.subject = init.subject;
+  if (init.body !== undefined) {
     start.content = init.body;
     start.contentText = htmlToText(init.body);
   }
+  if (init.draftId) start.draftId = init.draftId;
   return start;
 }

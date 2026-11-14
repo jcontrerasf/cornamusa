@@ -22,14 +22,18 @@
   let accountId = $state(start.accountId);
   let to = $state<EmailAddress[]>(start.to);
   let cc = $state<EmailAddress[]>(start.cc);
-  let bcc = $state<EmailAddress[]>([]);
-  let showCc = $state(start.cc.length > 0);
+  let bcc = $state<EmailAddress[]>(init0.bcc ?? []);
+  let showCc = $state(start.cc.length > 0 || (init0.bcc?.length ?? 0) > 0);
   let subject = $state(start.subject);
   let bodyHtml = $state(start.content);
   let bodyText = $state(start.contentText);
-  let attachments = $state<PickedFile[]>([]);
-  let signatureId = $state<string>(mode === 'draft' ? '' : (app.defaultSignature(start.accountId, sigKind)?.id ?? ''));
-  let includeQuote = $state(true);
+  let attachments = $state<PickedFile[]>(init0.attachments ?? []);
+  let signatureId = $state<string>(
+    init0.signatureId ?? (mode === 'draft' ? '' : (app.defaultSignature(start.accountId, sigKind)?.id ?? '')),
+  );
+  let includeQuote = $state(init0.includeQuote ?? true);
+  /** Set on drafts prepared by Claude (MCP), which it can change or delete while they exist. */
+  const claudeId = init0.claudeId;
   const { quoteHtml, quoteText, inReplyTo, references, forwardOf } = start;
   let draftId = $state<string | null>(start.draftId);
   let sending = $state(false);
@@ -42,7 +46,8 @@
   const snapshot = $derived(
     JSON.stringify([accountId, to, cc, bcc, subject, bodyHtml, attachments.map((a) => a.path), signatureId, includeQuote]),
   );
-  let savedSnapshot = $state(untrack(() => snapshot));
+  // What Claude prepared starts unsaved, so closing it keeps it in Drafts instead of losing it.
+  let savedSnapshot = $state(claudeId ? '' : untrack(() => snapshot));
   const dirty = $derived(snapshot !== savedSnapshot);
 
   const account = $derived(app.account(accountId));
@@ -85,8 +90,36 @@
     return bodyText.trim().length > 0 || to.length > 0 || subject.trim().length > 0 || attachments.length > 0;
   }
 
-  async function saveDraft(silent = true) {
-    if (!dirty || !hasContent() || saving || sending || !accountId) return;
+  /** Everything needed to open this message again exactly as it is now. */
+  function currentInit(): ComposeInit {
+    return {
+      mode, source: src, accountId, subject, body: bodyHtml, signatureId, includeQuote,
+      to: $state.snapshot(to), cc: $state.snapshot(cc), bcc: $state.snapshot(bcc), attachments: $state.snapshot(attachments),
+      draftId: draftId ?? undefined, claudeId,
+    };
+  }
+
+  /** State of the message for a change asked by Claude, once any save in progress has landed. */
+  export async function current(): Promise<ComposeInit> {
+    await saveInFlight;
+    return currentInit();
+  }
+
+  /** Deletes the message on Claude's request: no confirmation, the user asked Claude for it. */
+  export async function remove() {
+    await saveInFlight;
+    if (draftId) await api.deleteDraft(accountId, draftId);
+    app.composer = null;
+  }
+
+  let saveInFlight: Promise<void> = Promise.resolve();
+
+  function saveDraft(silent = true): Promise<void> {
+    if (!dirty || !hasContent() || saving || sending || !accountId) return saveInFlight;
+    return (saveInFlight = writeDraft(silent));
+  }
+
+  async function writeDraft(silent: boolean) {
     saving = true;
     try {
       const snap = snapshot;
@@ -123,7 +156,9 @@
   }
 
   async function close() {
+    await saveInFlight;
     if (dirty && hasContent()) await saveDraft(false);
+    if (claudeId && draftId) app.claudeDrafts.set(claudeId, currentInit());
     app.composer = null;
   }
 

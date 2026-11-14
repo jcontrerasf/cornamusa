@@ -146,6 +146,8 @@ export interface Settings {
 
 /** Draft prepared by Claude through MCP (see crates/core/src/mcp.rs). */
 export interface DraftRequest {
+  /** Identifies the draft in later changes from Claude. */
+  id: string;
   accountId: string | null;
   replyTo: { accountId: string; threadId: string } | null;
   replyAll: boolean;
@@ -154,6 +156,33 @@ export interface DraftRequest {
   subject: string | null;
   /** Plain text, without signature or quote. */
   body: string;
+  /** Absolute paths of the files to attach. */
+  attachments: string[];
+}
+
+/** Change Claude asks for on a draft it prepared: null fields keep their current value. */
+export interface DraftChangeRequest {
+  requestId: number;
+  id: string;
+  action: 'read' | 'update' | 'delete';
+  to: EmailAddress[] | null;
+  cc: EmailAddress[] | null;
+  subject: string | null;
+  body: string | null;
+  attachments: string[] | null;
+}
+
+export type DraftStatus = 'open' | 'queued' | 'saved' | 'deleted';
+
+/** Answer to a DraftChangeRequest; the content is only filled in when reading. */
+export interface DraftState {
+  status: DraftStatus;
+  to?: EmailAddress[];
+  cc?: EmailAddress[];
+  subject?: string;
+  /** Plain text, without signature or quote. */
+  body?: string;
+  attachments?: string[];
 }
 
 export type SendKey = 'enter' | 'ctrlEnter' | 'none';
@@ -242,12 +271,15 @@ export const api = {
   unreadCount: () => invoke<number>('unread_count'),
   /** Path of the Cornamusa executable, for the MCP client configuration. */
   mcpCommand: () => invoke<string>('mcp_command'),
+  /** Answers a DraftChangeRequest: where the draft ended up, or why it couldn't be changed. */
+  mcpDraftResult: (requestId: number, draft: DraftState | null, error: string | null) =>
+    invoke<void>('mcp_draft_result', { requestId, draft, error }),
 };
 
 export function onMailEvent(cb: (e: MailEvent) => void): Promise<UnlistenFn> {
   return listen<MailEvent>('mail://event', (e) => cb(e.payload));
 }
 
-export function onAppEvent<T>(name: 'app://compose' | 'app://settings' | 'app://compose-draft', cb: (payload: T) => void): Promise<UnlistenFn> {
+export function onAppEvent<T>(name: 'app://compose' | 'app://settings' | 'app://compose-draft' | 'app://change-draft', cb: (payload: T) => void): Promise<UnlistenFn> {
   return listen<T>(name, (e) => cb(e.payload));
 }

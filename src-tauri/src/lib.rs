@@ -6,7 +6,9 @@ mod tray;
 use cornamusa_core::model::Settings;
 use cornamusa_core::service::{Event, EventSink, MailService};
 use cornamusa_core::store::Store;
-use cornamusa_core::mcp::{DraftRequest, McpHandle, McpUi};
+use cornamusa_core::mcp::{DraftAction, DraftChange, DraftReply, DraftRequest, DraftState, McpHandle, McpUi};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 #[cfg(not(target_os = "linux"))]
@@ -18,6 +20,19 @@ pub struct AppState {
     pub settings: Arc<RwLock<Settings>>,
     /// MCP listener for Claude, while the integration is enabled.
     pub mcp: tokio::sync::Mutex<Option<McpHandle>>,
+    /// Draft changes asked by Claude that the window hasn't answered yet, by request id.
+    pub draft_replies: std::sync::Mutex<HashMap<u64, DraftAnswer>>,
+}
+
+pub type DraftAnswer = tokio::sync::oneshot::Sender<Result<DraftState, String>>;
+
+/// A [`DraftChange`] on its way to the window, which answers with `mcp_draft_result`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftChangeEvent {
+    request_id: u64,
+    #[serde(flatten)]
+    change: DraftChange,
 }
 
 /// Entry point of `cornamusa mcp` (see main.rs).
@@ -32,6 +47,23 @@ impl McpUi for TauriMcpUi {
     fn open_draft(&self, draft: DraftRequest) {
         show_main_window(&self.0);
         let _ = self.0.emit("app://compose-draft", &draft);
+    }
+
+    fn change_draft(&self, change: DraftChange) -> DraftReply {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let Some(state) = self.0.try_state::<AppState>() else { return rx }; // dropping tx fails the call
+        let request_id = NEXT.fetch_add(1, Ordering::Relaxed);
+        {
+            let mut replies = state.draft_replies.lock().unwrap();
+            replies.retain(|_, pending| !pending.is_closed()); // calls that timed out
+            replies.insert(request_id, tx);
+        }
+        if change.action == DraftAction::Update {
+            show_main_window(&self.0);
+        }
+        let _ = self.0.emit("app://change-draft", &DraftChangeEvent { request_id, change });
+        rx
     }
 }
 
@@ -246,7 +278,7 @@ pub fn run() {
 
             let sink = Arc::new(TauriSink { app: app.handle().clone(), settings: settings.clone() });
             let service = MailService::new(store, sink);
-            app.manage(AppState { service: service.clone(), settings: settings.clone(), mcp: Default::default() });
+            app.manage(AppState { service: service.clone(), settings: settings.clone(), mcp: Default::default(), draft_replies: Default::default() });
 
             tray::create(app.handle())?;
             clean_attachments_dir(app.handle());
@@ -328,6 +360,7 @@ pub fn run() {
             commands::open_external,
             commands::unread_count,
             commands::mcp_command,
+            commands::mcp_draft_result,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Cornamusa");

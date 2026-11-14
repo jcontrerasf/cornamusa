@@ -188,7 +188,7 @@
           <div class="opt">
             <div>
               <strong>Integración con Claude (MCP)</strong>
-              <p>Permite que Claude Code o Claude Desktop lean tus correos y te dejen borradores abiertos aquí para revisar. Claude no puede enviar ni borrar nada. Lo que Claude lee se envía a Anthropic con tu cuenta de Claude.</p>
+              <p>Permite que Claude Code o Claude Desktop lean tus correos y te dejen borradores abiertos aquí para revisar, con los archivos de tu equipo que le pidas adjuntar. Claude no puede enviar ni borrar correos: solo leer, editar o eliminar los borradores que él mismo preparó. Lo que Claude lee se envía a Anthropic con tu cuenta de Claude.</p>
             </div>
             <label class="switch"><input type="checkbox" checked={s.mcpEnabled} onchange={() => toggle('mcpEnabled')} /><span></span></label>
           </div>

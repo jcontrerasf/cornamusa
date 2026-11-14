@@ -1,4 +1,4 @@
-import { api, type AttachmentInfo, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget, type OpenTab } from './api';
+import { api, type AttachmentInfo, type Account, type Folder, type MessageBody, type MessageSummary, type SettingsView, type Signature, type Thread, type FolderRole, type EmailAddress, type MoveTarget, type OpenTab, type PickedFile } from './api';
 
 export type View =
   | { kind: 'unified'; role: FolderRole }
@@ -16,6 +16,15 @@ export interface ComposeInit {
   /** Initial body (HTML), e.g. a draft prepared by Claude. */
   body?: string;
   source?: MessageBody;
+  bcc?: EmailAddress[];
+  attachments?: PickedFile[];
+  /** Signature to start with ('' for none); the account's default when missing. */
+  signatureId?: string;
+  includeQuote?: boolean;
+  /** Message-ID of the copy saved in Drafts, which the next save replaces. */
+  draftId?: string;
+  /** Id of a draft prepared by Claude (MCP), so Claude can change or delete it later. */
+  claudeId?: string;
 }
 
 export interface Toast { id: number; kind: 'info' | 'error' | 'success'; text: string }
@@ -39,6 +48,9 @@ class AppState {
   composer = $state<ComposeInit | null>(null);
   /** Drafts from Claude waiting for the open composer to close. */
   pendingDrafts = $state<ComposeInit[]>([]);
+  /** Claude's drafts that were closed and saved to Drafts, as they were, by their Claude id.
+   *  Kept in memory only: after a restart Claude can no longer change them. */
+  claudeDrafts = new Map<string, ComposeInit>();
   showSettings = $state<null | 'general' | 'accounts' | 'signatures'>(null);
   showWizard = $state(false);
   /** Attachment open in the built-in viewer. */
@@ -382,6 +394,16 @@ class AppState {
   }
 
   compose(init: ComposeInit = { mode: 'new' }) {
+    // Reopening one of Claude's drafts from the Drafts folder restores it as it was closed
+    // (attachments, quote, signature) and keeps it reachable for Claude.
+    const savedId = init.mode === 'draft' ? init.source?.summary.messageId : null;
+    for (const [id, saved] of this.claudeDrafts) {
+      if (savedId && saved.draftId === savedId) {
+        this.claudeDrafts.delete(id);
+        init = saved;
+        break;
+      }
+    }
     this.composer = init;
   }
 
